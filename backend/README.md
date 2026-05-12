@@ -7,6 +7,22 @@ Python / FastAPI servisi. Katmanlar:
 - `infrastructure/` — DB, cache, dış servis implementasyonları
 - `api/` — HTTP/WebSocket sunumu
 
+## HTTP API (FastAPI)
+
+- **Giriş**: `hospitai.api.main:app` (`create_app()` fabrika).
+- **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`.
+- **OpenAPI**: `ENVIRONMENT!=production` iken `/docs`, `/redoc`, `/openapi.json`.
+- **Ortam**: `backend/.env` (kök `backend/` klasörüne göre mutlak yol ile okunur; monorepo kökünden çalıştırsan da bulunur).
+- **Log**: `structlog` — geliştirmede renkli konsol, diğer ortamlarda JSON.
+- **Hata gövdesi**: `{"error": {"code", "message", "request_id"}}` + `X-Request-ID` middleware.
+
+```bash
+cd backend
+pip install -e ".[dev]"
+alembic upgrade head   # readyz için Postgres gerekir
+uvicorn hospitai.api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
 ## Veritabanı (PostgreSQL)
 
 - **ORM**: SQLAlchemy 2 (async `asyncpg`), modeller `src/hospitai/infrastructure/db/models/`.

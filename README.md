@@ -35,6 +35,8 @@ cp frontend/.env.example frontend/.env.local
 
 Backend migrasyonları: `cd backend && alembic upgrade head` (önce `npm run docker:up` ve `backend/.env`).
 
+API sunucusu: `cd backend && uvicorn hospitai.api.main:app --reload --port 8000` (Vite proxy `/api` ve `/ws` için 8000).
+
 Backend kalite: `cd backend && ruff check src tests alembic && ruff format src tests alembic && pytest`
 
 ## Yerel referans dosyaları
