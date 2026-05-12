@@ -10,7 +10,7 @@ Python / FastAPI servisi. Katmanlar:
 ## HTTP API (FastAPI)
 
 - **Giriş**: `hospitai.api.main:app` (`create_app()` fabrika).
-- **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`, `POST /api/v1/auth/login`, `GET /api/v1/users/me`.
+- **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`, `POST /api/v1/auth/login`, `GET /api/v1/users/me`, `GET /api/v1/appointments/available-slots`, `POST /api/v1/tickets`, …
 - **OpenAPI**: `ENVIRONMENT!=production` iken `/docs`, `/redoc`, `/openapi.json`.
 - **Ortam**: `backend/.env` (kök `backend/` klasörüne göre mutlak yol ile okunur; monorepo kökünden çalıştırsan da bulunur).
 - **Log**: `structlog` — geliştirmede renkli konsol, diğer ortamlarda JSON.
@@ -24,6 +24,20 @@ Python / FastAPI servisi. Katmanlar:
 - **Profil**: `GET /api/v1/users/me` — `Authorization: Bearer <access>`.
 - **RBAC örneği**: `GET /api/v1/admin/ping` — yalnızca `admin`.
 - **İç servis**: `GET /api/v1/internal/ping` — `INTERNAL_API_KEY` tanımlıysa `X-Internal-Key` zorunlu.
+
+### Randevu ve ticket (domain API)
+
+Bearer JWT zorunlu; tenant bağlamı kullanıcıdan gelir.
+
+| Metot                               | Açıklama                                                              |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `GET /appointments/available-slots` | `doctor_id`, `day`, isteğe bağlı `slot_minutes` — 09:00–17:00 **UTC** |
+| `GET /appointments`                 | Hasta: kendi listesi; personel rolleri: tenant geneli                 |
+| `POST /appointments`                | Oluştur; `patient_user_id` yalnızca personel rolleri                  |
+| `POST /appointments/{id}/cancel`    | İptal                                                                 |
+| `GET /tickets`                      | Liste (`status` filtresi); hasta yalnızca kendi kayıtları             |
+| `POST /tickets`                     | `reference` otomatik (`TKT-…`)                                        |
+| `GET /tickets/{reference}`          | Detay                                                                 |
 
 İlk admin kullanıcıyı veritabanında `role=admin` olacak şekilde oluşturman gerekir (bir sonraki adımda seed/invite eklenebilir).
 
