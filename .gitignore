@@ -28,7 +28,7 @@ htmlcov/
 # Environment
 .env
 .env.*
-!.env.example
+.env.example
 
 # IDE / OS
 .idea/

@@ -1,0 +1,54 @@
+# HospitAI local stack — Postgres, Redis, Chroma (vector DB).
+# Copy env.example to .env and adjust if needed, then:
+#   docker compose -f infra/docker-compose.yml up -d
+
+name: hospitai
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hospitai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hospitai_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-hospitai}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    # Host 8001 avoids clashing with FastAPI default (8000) on the host.
+    ports:
+      - '${CHROMA_HOST_PORT:-8001}:8000'
+    volumes:
+      - chroma_data:/data
+    environment:
+      CHROMA_PERSIST_PATH: /data
+      CHROMA_ALLOW_RESET: 'true'
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:

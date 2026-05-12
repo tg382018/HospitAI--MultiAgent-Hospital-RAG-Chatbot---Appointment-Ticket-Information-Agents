@@ -8,7 +8,11 @@
     "prepare": "husky",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,json,md,yml,yaml}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,css,json,md,yml,yaml}\" --ignore-path .gitignore",
-    "lint": "npm run lint -w frontend"
+    "lint": "npm run lint -w frontend",
+    "docker:up": "docker compose -f infra/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infra/docker-compose.yml down",
+    "docker:logs": "docker compose -f infra/docker-compose.yml logs -f",
+    "docker:ps": "docker compose -f infra/docker-compose.yml ps"
   },
   "devDependencies": {
     "husky": "^9.1.7",
