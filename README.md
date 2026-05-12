@@ -33,7 +33,9 @@ cp frontend/.env.example frontend/.env.local
 | `npm run lint`            | Frontend ESLint                      |
 | `npm run dev -w frontend` | Vite geliştirme sunucusu             |
 
-Backend: `cd backend && ruff check src tests && ruff format src tests`
+Backend migrasyonları: `cd backend && alembic upgrade head` (önce `npm run docker:up` ve `backend/.env`).
+
+Backend kalite: `cd backend && ruff check src tests alembic && ruff format src tests alembic && pytest`
 
 ## Yerel referans dosyaları
 

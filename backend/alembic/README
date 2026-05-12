@@ -1,0 +1,1 @@
+Generic single-database configuration with async app URL; migrations run via sync `psycopg` (see `env.py`).
