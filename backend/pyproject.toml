@@ -18,6 +18,9 @@ dependencies = [
   "alembic>=1.14",
   "psycopg[binary]>=3.2",
   "structlog>=24.4",
+  "pyjwt>=2.9.0",
+  "bcrypt>=4.2.0",
+  "email-validator>=2.0.0",
 ]
 
 [project.optional-dependencies]

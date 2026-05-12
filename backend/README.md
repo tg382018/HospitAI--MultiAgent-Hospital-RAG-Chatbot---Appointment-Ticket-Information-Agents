@@ -10,11 +10,22 @@ Python / FastAPI servisi. Katmanlar:
 ## HTTP API (FastAPI)
 
 - **Giriş**: `hospitai.api.main:app` (`create_app()` fabrika).
-- **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`.
+- **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`, `POST /api/v1/auth/login`, `GET /api/v1/users/me`.
 - **OpenAPI**: `ENVIRONMENT!=production` iken `/docs`, `/redoc`, `/openapi.json`.
 - **Ortam**: `backend/.env` (kök `backend/` klasörüne göre mutlak yol ile okunur; monorepo kökünden çalıştırsan da bulunur).
 - **Log**: `structlog` — geliştirmede renkli konsol, diğer ortamlarda JSON.
 - **Hata gövdesi**: `{"error": {"code", "message", "request_id"}}` + `X-Request-ID` middleware.
+
+### Kimlik doğrulama (JWT)
+
+- **Login**: `POST /api/v1/auth/login` — gövde: `tenant_slug`, `email`, `password`.
+- **Kayıt** (açıksa): `POST /api/v1/auth/register` — yalnızca **patient** rolü; `ALLOW_OPEN_REGISTRATION=false` ile kapatılır.
+- **Refresh**: `POST /api/v1/auth/refresh` — `refresh_token`.
+- **Profil**: `GET /api/v1/users/me` — `Authorization: Bearer <access>`.
+- **RBAC örneği**: `GET /api/v1/admin/ping` — yalnızca `admin`.
+- **İç servis**: `GET /api/v1/internal/ping` — `INTERNAL_API_KEY` tanımlıysa `X-Internal-Key` zorunlu.
+
+İlk admin kullanıcıyı veritabanında `role=admin` olacak şekilde oluşturman gerekir (bir sonraki adımda seed/invite eklenebilir).
 
 ```bash
 cd backend
