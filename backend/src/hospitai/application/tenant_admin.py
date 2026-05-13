@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hospitai.application.errors import DomainError
+from hospitai.application.tenant_agent_llm import (
+    merge_agent_llm_settings,
+    validate_agent_llm_patch,
+)
 from hospitai.application.tenant_policy import merge_policy_patch
 from hospitai.infrastructure.db.models.enums import UserRole
 from hospitai.infrastructure.db.models.tenant import Tenant
@@ -119,6 +124,22 @@ async def patch_tenant_policy(
     policy_patch: dict[str, object],
 ) -> Tenant:
     merged = merge_policy_patch(tenant.settings, policy_patch)
+    tenant.settings = merged
+    await session.flush()
+    return tenant
+
+
+async def apply_agent_llm_settings_patch(
+    session: AsyncSession,
+    *,
+    tenant: Tenant,
+    patch: dict[str, Any],
+) -> Tenant:
+    validated = validate_agent_llm_patch(patch)
+    merged = merge_agent_llm_settings(
+        tenant.settings if isinstance(tenant.settings, dict) else None,
+        validated,
+    )
     tenant.settings = merged
     await session.flush()
     return tenant

@@ -15,15 +15,21 @@ from hospitai.api.schemas.admin_tenant import (
     AdminUserListResponse,
     AdminUserPatch,
     AdminUserPublic,
+    TenantAgentLLMPublic,
     TenantPolicyPatch,
     TenantPolicyPublic,
 )
 from hospitai.application.errors import DomainError
 from hospitai.application.tenant_admin import (
     admin_update_user,
+    apply_agent_llm_settings_patch,
     get_tenant_for_admin,
     list_tenant_users,
     patch_tenant_policy,
+)
+from hospitai.application.tenant_agent_llm import (
+    TenantAgentLLMPatch,
+    tenant_agent_llm_public_fields,
 )
 from hospitai.application.tenant_policy import effective_policy
 from hospitai.infrastructure.db.models.enums import UserRole
@@ -129,6 +135,41 @@ async def patch_tenant_policy_endpoint(
     return TenantPolicyPublic(
         rag_retrieval_enabled=bool(pol.get("rag_retrieval_enabled", True)),
     )
+
+
+# ---- Tenant agent LLM (JSONB overrides) ------------------------------------
+
+
+@router.get("/tenant-agent-llm", response_model=TenantAgentLLMPublic)
+async def get_tenant_agent_llm(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> TenantAgentLLMPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    raw = tenant.settings if isinstance(tenant.settings, dict) else None
+    return TenantAgentLLMPublic.model_validate(tenant_agent_llm_public_fields(raw))
+
+
+@router.patch("/tenant-agent-llm", response_model=TenantAgentLLMPublic)
+async def patch_tenant_agent_llm(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    body: TenantAgentLLMPatch,
+) -> TenantAgentLLMPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        raw = tenant.settings if isinstance(tenant.settings, dict) else None
+        return TenantAgentLLMPublic.model_validate(tenant_agent_llm_public_fields(raw))
+    try:
+        await apply_agent_llm_settings_patch(session, tenant=tenant, patch=patch)
+        await session.commit()
+        await session.refresh(tenant)
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
+    raw = tenant.settings if isinstance(tenant.settings, dict) else None
+    return TenantAgentLLMPublic.model_validate(tenant_agent_llm_public_fields(raw))
 
 
 # ---- Tenant users ----------------------------------------------------------

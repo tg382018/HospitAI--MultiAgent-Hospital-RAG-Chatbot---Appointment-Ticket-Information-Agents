@@ -8,7 +8,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from hospitai_agent.llm_client import get_llm
-from hospitai_agent.llm_profile import get_llm_profile
+from hospitai_agent.llm_profile import LLMProfile, get_llm_profile
 from hospitai_agent.state import ChatState
 
 _INTENT_SYSTEM_PROMPT = """\
@@ -67,13 +67,13 @@ def keyword_classify(text: str) -> str | None:
     return None
 
 
-async def llm_classify(text: str) -> str:
+async def llm_classify(text: str, profile: LLMProfile | None = None) -> str:
     """Use LLM to classify ambiguous messages."""
-    profile = get_llm_profile()
-    if not (profile.llm_api_key or profile.embedding_api_key):
+    p = profile or get_llm_profile()
+    if not (p.llm_api_key or p.embedding_api_key):
         return "general"
 
-    llm = get_llm(profile)
+    llm = get_llm(p)
     messages = [
         SystemMessage(content=_INTENT_SYSTEM_PROMPT),
         HumanMessage(content=text),
@@ -96,10 +96,13 @@ async def llm_classify(text: str) -> str:
     return "general"
 
 
-async def classify_intent(state: ChatState) -> ChatState:
+async def classify_intent(
+    state: ChatState,
+    llm_profile: LLMProfile | None = None,
+) -> ChatState:
     """Classify user message intent. Fast path: keywords → LLM fallback."""
     intent = keyword_classify(state.user_message)
     if intent is None:
-        intent = await llm_classify(state.user_message)
+        intent = await llm_classify(state.user_message, profile=llm_profile)
     state.intent = intent
     return state

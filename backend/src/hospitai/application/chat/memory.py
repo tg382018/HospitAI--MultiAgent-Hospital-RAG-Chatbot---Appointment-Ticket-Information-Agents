@@ -20,13 +20,15 @@ async def load_memory(
     state: ChatState,
     session: AsyncSession,
     conversation_id: uuid.UUID | None,
+    *,
+    max_messages: int | None = None,
 ) -> ChatState:
     """Load recent conversation history into state.history."""
     if conversation_id is None:
         return state
 
     settings = get_settings()
-    max_msgs = settings.max_conversation_history
+    max_msgs = max_messages if max_messages is not None else settings.max_conversation_history
 
     stmt = (
         select(ConversationMessage)

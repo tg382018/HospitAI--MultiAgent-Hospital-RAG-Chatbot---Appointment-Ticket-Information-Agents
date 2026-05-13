@@ -24,6 +24,23 @@ class TenantPolicyPatch(BaseModel):
     rag_retrieval_enabled: bool | None = None
 
 
+class TenantAgentLLMPublic(BaseModel):
+    """Per-tenant agent LLM overrides (subset of ``tenants.settings``)."""
+
+    agent_llm_temperature: float | None = Field(
+        default=None,
+        description="Override LLM temperature; omit or null uses platform default.",
+    )
+    agent_llm_model: str | None = Field(
+        default=None,
+        description="Override chat model id; omit or null uses platform default.",
+    )
+    agent_max_conversation_history: int | None = Field(
+        default=None,
+        description="Max prior messages loaded into context (1–50); null uses platform default.",
+    )
+
+
 class AdminUserPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -47,6 +47,12 @@ type AdminUsersResponse = { users: AdminUserRow[] };
 
 type TenantPolicy = { rag_retrieval_enabled: boolean };
 
+type TenantAgentLLM = {
+  agent_llm_temperature: number | null;
+  agent_llm_model: string | null;
+  agent_max_conversation_history: number | null;
+};
+
 type ReindexQueuedResponse = { task_id: string; document_id: string };
 
 function RoleBanner({ role }: { role: UserRole | undefined }) {
@@ -178,6 +184,11 @@ export default function App() {
   const [tenantPolicy, setTenantPolicy] = useState<TenantPolicy | null>(null);
   const [policyErr, setPolicyErr] = useState<string | null>(null);
   const [policyMsg, setPolicyMsg] = useState<string | null>(null);
+  const [agentLlmTemp, setAgentLlmTemp] = useState('');
+  const [agentLlmModel, setAgentLlmModel] = useState('');
+  const [agentLlmHist, setAgentLlmHist] = useState('');
+  const [agentLlmErr, setAgentLlmErr] = useState<string | null>(null);
+  const [agentLlmMsg, setAgentLlmMsg] = useState<string | null>(null);
   const [userAdminMsg, setUserAdminMsg] = useState<string | null>(null);
   const [reindexHint, setReindexHint] = useState<string | null>(null);
 
@@ -245,12 +256,36 @@ export default function App() {
     }
   }, [token, role]);
 
+  const loadTenantAgentLlm = useCallback(async () => {
+    if (!token || !canTenantAdmin(role)) return;
+    setAgentLlmErr(null);
+    try {
+      const a = await apiFetch<TenantAgentLLM>('/api/v1/admin/tenant-agent-llm', {
+        headers: authHeaders(token),
+      });
+      setAgentLlmTemp(
+        a.agent_llm_temperature !== null && a.agent_llm_temperature !== undefined
+          ? String(a.agent_llm_temperature)
+          : ''
+      );
+      setAgentLlmModel(a.agent_llm_model ?? '');
+      setAgentLlmHist(
+        a.agent_max_conversation_history !== null && a.agent_max_conversation_history !== undefined
+          ? String(a.agent_max_conversation_history)
+          : ''
+      );
+    } catch (e) {
+      setAgentLlmErr(formatApiError(e));
+    }
+  }, [token, role]);
+
   useEffect(() => {
     if (token && canTenantAdmin(role)) {
       void loadAdminUsers();
       void loadTenantPolicy();
+      void loadTenantAgentLlm();
     }
-  }, [token, role, loadAdminUsers, loadTenantPolicy]);
+  }, [token, role, loadAdminUsers, loadTenantPolicy, loadTenantAgentLlm]);
 
   async function onLogout() {
     clear();
@@ -260,9 +295,14 @@ export default function App() {
     setConnKey('');
     setAdminUsers([]);
     setTenantPolicy(null);
+    setAgentLlmTemp('');
+    setAgentLlmModel('');
+    setAgentLlmHist('');
     setAdminUsersErr(null);
     setPolicyErr(null);
     setPolicyMsg(null);
+    setAgentLlmErr(null);
+    setAgentLlmMsg(null);
     setUserAdminMsg(null);
     setReindexHint(null);
   }
@@ -374,6 +414,61 @@ export default function App() {
     }
   }
 
+  async function onSaveAgentLlm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || !canTenantAdmin(role)) return;
+    setAgentLlmMsg(null);
+    setAgentLlmErr(null);
+    const json: Record<string, number | string> = {};
+    const t = agentLlmTemp.trim();
+    if (t.length > 0) {
+      const n = Number(t);
+      if (Number.isNaN(n)) {
+        setAgentLlmErr('Sıcaklık geçerli bir sayı olmalı.');
+        return;
+      }
+      json.agent_llm_temperature = n;
+    }
+    const m = agentLlmModel.trim();
+    if (m.length > 0) {
+      json.agent_llm_model = m;
+    }
+    const h = agentLlmHist.trim();
+    if (h.length > 0) {
+      const n = parseInt(h, 10);
+      if (Number.isNaN(n)) {
+        setAgentLlmErr('Geçmiş uzunluğu geçerli bir tam sayı olmalı.');
+        return;
+      }
+      json.agent_max_conversation_history = n;
+    }
+    if (Object.keys(json).length === 0) {
+      setAgentLlmErr('Kaydetmek için en az bir alan doldurun.');
+      return;
+    }
+    try {
+      const a = await apiFetch<TenantAgentLLM>('/api/v1/admin/tenant-agent-llm', {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        json,
+      });
+      setAgentLlmMsg('Agent LLM ayarları güncellendi.');
+      setAgentLlmTemp(
+        a.agent_llm_temperature !== null && a.agent_llm_temperature !== undefined
+          ? String(a.agent_llm_temperature)
+          : ''
+      );
+      setAgentLlmModel(a.agent_llm_model ?? '');
+      setAgentLlmHist(
+        a.agent_max_conversation_history !== null && a.agent_max_conversation_history !== undefined
+          ? String(a.agent_max_conversation_history)
+          : ''
+      );
+    } catch (err) {
+      setAgentLlmErr(formatApiError(err));
+    }
+  }
+
   async function onPatchUser(userId: string, patch: { role?: UserRole; is_active?: boolean }) {
     if (!token || !canTenantAdmin(role)) return;
     setUserAdminMsg(null);
@@ -446,6 +541,58 @@ export default function App() {
               </div>
             )}
             {policyMsg && <p className="mt-2 text-sm text-slate-600">{policyMsg}</p>}
+          </section>
+        )}
+
+        {canTenantAdmin(role) && (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900">Agent LLM (tenant)</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Sohbet modeli, sıcaklık ve geçmiş uzunluğu için tenant üzerinde isteğe bağlı geçersiz
+              kılmalar. Boş bırakılan alanlar bu kayıtta değiştirilmez; yalnızca doldurduğunuz
+              alanlar güncellenir.
+            </p>
+            {agentLlmErr && <p className="mt-2 text-sm text-red-700">{agentLlmErr}</p>}
+            <form onSubmit={(e) => void onSaveAgentLlm(e)} className="mt-4 max-w-xl space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                LLM sıcaklığı (0–2)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900"
+                  value={agentLlmTemp}
+                  onChange={(e) => setAgentLlmTemp(e.target.value)}
+                  placeholder="Örn. 0.4 — boşsa bu alan PATCH ile değiştirilmez"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Model kimliği
+                <input
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900"
+                  value={agentLlmModel}
+                  onChange={(e) => setAgentLlmModel(e.target.value)}
+                  placeholder="Örn. gpt-4o-mini"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Maks. konuşma geçmişi (1–50 mesaj)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900"
+                  value={agentLlmHist}
+                  onChange={(e) => setAgentLlmHist(e.target.value)}
+                  placeholder="Örn. 20"
+                />
+              </label>
+              {agentLlmMsg && <p className="text-sm text-slate-600">{agentLlmMsg}</p>}
+              <button
+                type="submit"
+                className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                LLM ayarlarını kaydet
+              </button>
+            </form>
           </section>
         )}
 

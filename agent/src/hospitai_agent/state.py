@@ -29,3 +29,5 @@ class ChatState:
 
     response: str = ""
     sources: list[str] = field(default_factory=list)
+
+    llm_overrides: dict[str, Any] = field(default_factory=dict)

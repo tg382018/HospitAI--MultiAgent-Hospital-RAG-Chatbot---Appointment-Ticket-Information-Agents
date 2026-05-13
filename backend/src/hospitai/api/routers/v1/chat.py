@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import structlog
@@ -21,6 +22,10 @@ from hospitai.application.chat.memory import (
     load_memory,
     save_message,
 )
+from hospitai.application.tenant_agent_llm import (
+    effective_max_conversation_history,
+    graph_llm_overrides_from_tenant_settings,
+)
 from hospitai.infrastructure.db.models.conversation import Conversation
 from hospitai.infrastructure.db.models.tenant import Tenant
 from hospitai.infrastructure.db.models.user import User
@@ -29,6 +34,21 @@ from hospitai.infrastructure.db.session import get_session_factory
 log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+async def _tenant_slug_and_agent_overrides(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+) -> tuple[str, dict[str, Any], int]:
+    stmt = select(Tenant).where(Tenant.id == tenant_id)
+    row = await session.execute(stmt)
+    tenant = row.scalar_one_or_none()
+    slug = (tenant.slug or "") if tenant else ""
+    settings = tenant.settings if tenant and isinstance(tenant.settings, dict) else None
+    llm_ov = graph_llm_overrides_from_tenant_settings(settings)
+    max_h = effective_max_conversation_history(settings)
+    return slug, llm_ov, max_h
 
 
 async def _save_assistant_and_maybe_audit(
@@ -73,10 +93,9 @@ async def chat(request: Request, body: ChatRequest, user: CurrentUser) -> ChatRe
     tools / RAG → response generation → output safety.
     """
     async with get_session_factory()() as session:
-        # Resolve tenant slug (async-safe — no lazy loading)
-        stmt = select(Tenant.slug).where(Tenant.id == user.tenant_id)
-        result_row = await session.execute(stmt)
-        tenant_slug = result_row.scalar_one_or_none() or ""
+        tenant_slug, llm_overrides, max_hist = await _tenant_slug_and_agent_overrides(
+            session, tenant_id=user.tenant_id
+        )
 
         conv = await get_or_create_conversation(
             session,
@@ -90,10 +109,11 @@ async def chat(request: Request, body: ChatRequest, user: CurrentUser) -> ChatRe
             tenant_slug=tenant_slug,
             user_role=user.role.value if hasattr(user.role, "value") else str(user.role),
             user_id=str(user.id),
+            llm_overrides=dict(llm_overrides),
         )
 
         # Load conversation memory
-        cs = await load_memory(cs, session, conv.id)
+        cs = await load_memory(cs, session, conv.id, max_messages=max_hist)
 
         # Save user message
         await save_message(
@@ -112,6 +132,7 @@ async def chat(request: Request, body: ChatRequest, user: CurrentUser) -> ChatRe
         user_id=str(user.id),
         user_role=user.role.value if hasattr(user.role, "value") else str(user.role),
         history=cs.history,
+        llm_overrides=llm_overrides or None,
     )
 
     # Save assistant response + optional security audit
@@ -145,9 +166,9 @@ async def chat(request: Request, body: ChatRequest, user: CurrentUser) -> ChatRe
 async def chat_stream(request: Request, body: ChatRequest, user: CurrentUser) -> StreamingResponse:
     """SSE: ``meta`` (conversation id), ``token`` chunks, ``final`` (assistant payload)."""
     async with get_session_factory()() as session:
-        stmt = select(Tenant.slug).where(Tenant.id == user.tenant_id)
-        result_row = await session.execute(stmt)
-        tenant_slug = result_row.scalar_one_or_none() or ""
+        tenant_slug, llm_overrides, max_hist = await _tenant_slug_and_agent_overrides(
+            session, tenant_id=user.tenant_id
+        )
 
         conv = await get_or_create_conversation(
             session,
@@ -161,8 +182,9 @@ async def chat_stream(request: Request, body: ChatRequest, user: CurrentUser) ->
             tenant_slug=tenant_slug,
             user_role=user.role.value if hasattr(user.role, "value") else str(user.role),
             user_id=str(user.id),
+            llm_overrides=dict(llm_overrides),
         )
-        cs = await load_memory(cs, session, conv.id)
+        cs = await load_memory(cs, session, conv.id, max_messages=max_hist)
         await save_message(
             session,
             conversation_id=conv.id,
@@ -186,6 +208,7 @@ async def chat_stream(request: Request, body: ChatRequest, user: CurrentUser) ->
                 user_id=str(user.id),
                 user_role=user.role.value if hasattr(user.role, "value") else str(user.role),
                 history=cs.history,
+                llm_overrides=llm_overrides or None,
             ):
                 yield raw
                 if raw.startswith("event: final"):

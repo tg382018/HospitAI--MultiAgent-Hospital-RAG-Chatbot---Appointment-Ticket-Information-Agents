@@ -13,7 +13,7 @@ from langgraph.graph import END, StateGraph
 
 from hospitai_agent.intent import classify_intent
 from hospitai_agent.llm_client import get_llm
-from hospitai_agent.llm_profile import get_llm_profile
+from hospitai_agent.llm_profile import get_llm_profile, merge_llm_profile
 from hospitai_agent.safety import output_safety_check, safety_check
 from hospitai_agent.state import ChatState
 from hospitai_agent.workflow_tools import ChatWorkflowTools
@@ -124,6 +124,7 @@ class _GraphState(TypedDict):
     history: list[dict[str, str]]
     response: str
     sources: list[str]
+    llm_overrides: dict[str, Any]
 
 
 def _cs_to_gs(cs: ChatState) -> _GraphState:
@@ -141,6 +142,7 @@ def _cs_to_gs(cs: ChatState) -> _GraphState:
         history=cs.history,
         response=cs.response,
         sources=cs.sources,
+        llm_overrides=dict(cs.llm_overrides),
     )
 
 
@@ -159,6 +161,7 @@ def _gs_to_cs(gs: _GraphState) -> ChatState:
         history=gs["history"],
         response=gs["response"],
         sources=gs["sources"],
+        llm_overrides=dict(gs["llm_overrides"]),
     )
 
 
@@ -198,7 +201,8 @@ async def _classify(state: _GraphState) -> _GraphState:
     if state["safety_flag"]:
         return state
     cs = _gs_to_cs(state)
-    cs = await classify_intent(cs)
+    profile = merge_llm_profile(get_llm_profile(), cs.llm_overrides or None)
+    cs = await classify_intent(cs, llm_profile=profile)
     return _cs_to_gs(cs)
 
 
@@ -311,7 +315,7 @@ async def _generate_response(state: _GraphState) -> _GraphState:
 
     messages.append(HumanMessage(content=state["user_message"]))
 
-    profile = get_llm_profile()
+    profile = merge_llm_profile(get_llm_profile(), state["llm_overrides"] or None)
     try:
         from langgraph.config import get_stream_writer
 
@@ -485,6 +489,7 @@ async def run_chat(
     user_id: str = "",
     user_role: str = "patient",
     history: list[dict[str, str]] | None = None,
+    llm_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the full chat workflow and return the response dict."""
     graph = _get_graph()
@@ -503,6 +508,7 @@ async def run_chat(
         history=history or [],
         response="",
         sources=[],
+        llm_overrides=dict(llm_overrides or {}),
     )
 
     final_state = await graph.ainvoke(initial_state)
@@ -516,6 +522,7 @@ async def iter_chat_sse(
     user_id: str = "",
     user_role: str = "patient",
     history: list[dict[str, str]] | None = None,
+    llm_overrides: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """Run the chat graph with LangGraph custom stream (LLM tokens) + SSE lines."""
     graph = _get_graph()
@@ -533,6 +540,7 @@ async def iter_chat_sse(
         history=history or [],
         response="",
         sources=[],
+        llm_overrides=dict(llm_overrides or {}),
     )
     acc: dict[str, Any] = dict(initial_state)
     async for mode, chunk in graph.astream(initial_state, stream_mode=["custom", "updates"]):
