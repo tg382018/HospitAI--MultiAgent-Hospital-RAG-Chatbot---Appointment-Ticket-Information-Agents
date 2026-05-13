@@ -5,13 +5,18 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import httpx
 from fastapi import APIRouter, Query
+from sqlalchemy import select
 
 from hospitai.api.deps import CurrentUser, SessionDep
+from hospitai.api.errors import AppError
 from hospitai.api.http_mapping import raise_from_domain
 from hospitai.api.schemas.appointments import (
     AppointmentResponse,
     CreateAppointmentRequest,
+    ExternalAppointmentResultResponse,
+    ExternalBookAppointmentRequest,
     SlotWindow,
 )
 from hospitai.application.appointments import (
@@ -21,6 +26,11 @@ from hospitai.application.appointments import (
     list_available_slots,
 )
 from hospitai.application.errors import DomainError
+from hospitai.infrastructure.db.models.tenant import Tenant
+from hospitai.infrastructure.hospital_connector import (
+    new_booking_idempotency_key,
+    post_external_appointment,
+)
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -59,6 +69,63 @@ async def list_appointments(
         limit=limit,
     )
     return [AppointmentResponse.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/external-book",
+    response_model=ExternalAppointmentResultResponse,
+    summary="Book via external hospital connector",
+)
+async def book_external_via_connector(
+    session: SessionDep,
+    current: CurrentUser,
+    body: ExternalBookAppointmentRequest,
+) -> ExternalAppointmentResultResponse:
+    """Proxies to the tenant's ``external_hospital_base_url`` (e.g. xyz-hospital)."""
+    stmt = select(Tenant).where(Tenant.id == current.tenant_id)
+    row = await session.execute(stmt)
+    tenant = row.scalar_one_or_none()
+    if tenant is None:
+        raise AppError("tenant_not_found", "Hospital not found", status_code=404)
+    base = (tenant.external_hospital_base_url or "").strip()
+    if not base:
+        raise AppError(
+            "external_connector_not_configured",
+            "This hospital is not configured for external appointment booking",
+            status_code=400,
+        )
+    idem = body.idempotency_key or new_booking_idempotency_key()
+    payload = {
+        "given_name": body.given_name,
+        "family_name": body.family_name,
+        "national_id": body.national_id,
+        "department_code": body.department_code,
+        "doctor_code": body.doctor_code,
+        "slot_start": body.slot_start.isoformat(),
+        "slot_end": body.slot_end.isoformat(),
+        "idempotency_key": idem,
+        "contact_phone": body.contact_phone,
+    }
+    api_key = (tenant.external_hospital_api_key or "").strip() or None
+    try:
+        raw = await post_external_appointment(base_url=base, api_key=api_key, body=payload)
+    except httpx.HTTPStatusError as e:
+        raise AppError(
+            "external_appointment_upstream",
+            f"External hospital returned HTTP {e.response.status_code}",
+            status_code=502,
+        ) from e
+    except httpx.RequestError as e:
+        raise AppError(
+            "external_appointment_unreachable",
+            "Could not reach external hospital appointment API",
+            status_code=502,
+        ) from e
+    return ExternalAppointmentResultResponse(
+        status=str(raw.get("status", "error")),
+        appointment_id=raw.get("appointment_id"),
+        message=str(raw.get("message", "")),
+    )
 
 
 @router.post("", response_model=AppointmentResponse, status_code=201)

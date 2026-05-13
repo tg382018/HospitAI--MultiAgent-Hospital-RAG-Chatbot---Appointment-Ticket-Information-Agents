@@ -10,6 +10,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
+import httpx
 import structlog
 from hospitai_agent.state import ChatState
 from hospitai_agent.workflow_tools import ChatWorkflowTools
@@ -57,27 +58,50 @@ async def list_available_slots_tool(
         if not tenant:
             return {"success": False, "error": "Hastane bulunamadı."}
 
-        slots = await appt_svc.list_available_slots(
-            session,
-            tenant_id=tenant.id,
-            day=day,
-            department_name=department_name or None,
-            doctor_name=doctor_name or None,
-        )
+        base = (tenant.external_hospital_base_url or "").strip()
+        if base:
+            from hospitai.infrastructure import hospital_connector as ext
+
+            try:
+                slots = await ext.list_external_slots_merged(
+                    base_url=base,
+                    api_key=(tenant.external_hospital_api_key or "").strip() or None,
+                    for_date=day,
+                    doctor_name_substr=doctor_name or None,
+                    department_substr=department_name or None,
+                )
+            except httpx.HTTPError as exc:
+                log.warning("external_slots_http_error", error=str(exc))
+                return {
+                    "success": False,
+                    "error": (
+                        "Dış randevu sistemine şu an ulaşılamıyor. "
+                        "Lütfen daha sonra tekrar deneyin."
+                    ),
+                }
+        else:
+            slots = await appt_svc.list_available_slots_for_chat(
+                session,
+                tenant_id=tenant.id,
+                day=day,
+                department_name=department_name or None,
+                doctor_name=doctor_name or None,
+            )
 
         return {
             "success": True,
             "date": day.isoformat(),
             "slots": [
                 {
-                    "doctor": s.get("doctor_name", "N/A"),
-                    "department": s.get("department_name", "N/A"),
-                    "start": _fmt_dt(s.get("start_time")),
-                    "end": _fmt_dt(s.get("end_time")),
+                    "doctor": s["doctor_name"],
+                    "department": s["department_name"],
+                    "start": _fmt_dt(s["start_time"]),
+                    "end": _fmt_dt(s["end_time"]),
                 }
                 for s in slots
             ],
             "count": len(slots),
+            "source": "external" if base else "internal",
         }
 
 
@@ -198,11 +222,13 @@ async def retrieve_knowledge_tool(state: ChatState, query: str) -> dict[str, Any
             n_results=5,
         )
 
-        sources = list({
-            c.get("metadata", {}).get("title", "")
-            for c in chunks
-            if c.get("metadata", {}).get("title")
-        })
+        sources = list(
+            {
+                c.get("metadata", {}).get("title", "")
+                for c in chunks
+                if c.get("metadata", {}).get("title")
+            }
+        )
 
         return {
             "success": True,

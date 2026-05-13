@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from hospitai.application.errors import DomainError
 from hospitai.application.permissions import BOOK_FOR_OTHERS_ROLES
 from hospitai.infrastructure.db.models.appointment import Appointment
-from hospitai.infrastructure.db.models.clinical import Doctor
+from hospitai.infrastructure.db.models.clinical import Department, Doctor
 from hospitai.infrastructure.db.models.enums import AppointmentStatus
 from hospitai.infrastructure.db.models.user import User
 
@@ -113,6 +113,62 @@ async def list_available_slots(
         window_end=day_end,
     )
     return compute_free_slots(work_start, work_end, busy, slot_minutes=slot_minutes)
+
+
+async def list_available_slots_for_chat(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    day: date,
+    department_name: str | None,
+    doctor_name: str | None,
+    slot_minutes: int = 30,
+) -> list[dict[str, Any]]:
+    """Free slots for conversational tools: all matching active doctors, sorted by time."""
+    stmt = (
+        select(Doctor, Department.name)
+        .outerjoin(Department, Doctor.department_id == Department.id)
+        .where(
+            Doctor.tenant_id == tenant_id,
+            Doctor.is_active.is_(True),
+        )
+    )
+    dn = (doctor_name or "").strip()
+    if dn:
+        stmt = stmt.where(Doctor.full_name.ilike(f"%{dn}%"))
+    dep_q = (department_name or "").strip()
+    if dep_q:
+        pattern = f"%{dep_q}%"
+        stmt = stmt.where(
+            or_(
+                Department.name.ilike(pattern),
+                Department.code.ilike(pattern),
+            )
+        )
+
+    result = await session.execute(stmt)
+    rows = result.all()
+    aggregated: list[dict[str, Any]] = []
+    for doctor, dept_name in rows:
+        intervals = await list_available_slots(
+            session,
+            tenant_id=tenant_id,
+            doctor_id=doctor.id,
+            day=day,
+            slot_minutes=slot_minutes,
+        )
+        dep_label = dept_name or "N/A"
+        for start, end in intervals:
+            aggregated.append(
+                {
+                    "doctor_name": doctor.full_name,
+                    "department_name": dep_label,
+                    "start_time": start,
+                    "end_time": end,
+                }
+            )
+    aggregated.sort(key=lambda r: r["start_time"])
+    return aggregated
 
 
 async def _resolve_patient_user_id(

@@ -22,6 +22,12 @@ class Tenant(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     branding: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     settings: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    external_hospital_base_url: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, doc="Base URL for external appointment API (e.g. xyz-hospital)."
+    )
+    external_hospital_api_key: Mapped[str | None] = mapped_column(
+        String(512), nullable=True, doc="Optional Bearer token for external hospital API."
+    )
 
     users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
     departments = relationship("Department", back_populates="tenant", cascade="all, delete-orphan")
