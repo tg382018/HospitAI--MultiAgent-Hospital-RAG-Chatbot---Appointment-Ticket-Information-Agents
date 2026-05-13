@@ -39,7 +39,7 @@ cp frontend/.env.example frontend/.env.local
 | `npm run lint`            | Frontend ESLint                                      |
 | `npm run dev -w frontend` | Vite geliştirme sunucusu                             |
 
-Backend migrasyonları: `cd backend && alembic upgrade head` (önce `npm run docker:up` ve `backend/.env`).
+Backend migrasyonları: `cd backend && alembic upgrade head` (önce `npm run docker:up` ve `backend/.env`). Bu işlem **`demo-hospital`** tenant’ını oluşturur; frontend varsayılan olarak bunu kullanır.
 
 API sunucusu: `cd backend && uvicorn hospitai.api.main:app --reload --port 8000` (Vite proxy `/api` ve `/ws` için 8000).
 
