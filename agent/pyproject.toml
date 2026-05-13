@@ -15,6 +15,9 @@ dependencies = [
   "langchain-openai>=0.3",
   "pydantic>=2.10",
   "pydantic-settings>=2.7",
+  "chromadb-client>=0.6.0",
+  "openai>=1.60",
+  "tiktoken>=0.8",
 ]
 
 [project.optional-dependencies]

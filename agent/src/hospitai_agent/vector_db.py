@@ -1,10 +1,4 @@
-"""ChromaDB client — tenant-aware collection management.
-
-Each tenant gets its own ChromaDB collection named:
-    {chroma_collection_prefix}_{tenant_slug}
-
-This ensures strict data isolation between tenants in the vector store.
-"""
+"""ChromaDB HTTP client — tenant-scoped collections."""
 
 from __future__ import annotations
 
@@ -13,38 +7,36 @@ import uuid
 import chromadb
 import structlog
 
-from hospitai.infrastructure.settings import get_settings
+from hospitai_agent.rag_profile import get_rag_profile
 
 log = structlog.get_logger(__name__)
 
 _client: chromadb.HttpClient | None = None
 
 
+def reset_chroma_client() -> None:
+    global _client
+    _client = None
+
+
 def get_chroma_client() -> chromadb.HttpClient:
-    """Return a singleton ChromaDB HTTP client (connects to Docker Chroma service)."""
     global _client
     if _client is None:
-        settings = get_settings()
+        profile = get_rag_profile()
         _client = chromadb.HttpClient(
-            host=settings.chroma_host,
-            port=settings.chroma_port,
+            host=profile.chroma_host,
+            port=profile.chroma_port,
         )
-        log.info(
-            "chroma_connected",
-            host=settings.chroma_host,
-            port=settings.chroma_port,
-        )
+        log.info("chroma_connected", host=profile.chroma_host, port=profile.chroma_port)
     return _client
 
 
 def tenant_collection_name(tenant_slug: str) -> str:
-    """Derive a deterministic ChromaDB collection name for a tenant."""
-    prefix = get_settings().chroma_collection_prefix
+    prefix = get_rag_profile().chroma_collection_prefix
     return f"{prefix}_{tenant_slug}"
 
 
 def get_tenant_collection(tenant_slug: str) -> chromadb.Collection:
-    """Get or create the ChromaDB collection for a given tenant."""
     client = get_chroma_client()
     name = tenant_collection_name(tenant_slug)
     return client.get_or_create_collection(
@@ -54,7 +46,6 @@ def get_tenant_collection(tenant_slug: str) -> chromadb.Collection:
 
 
 def delete_tenant_collection(tenant_slug: str) -> None:
-    """Delete the entire ChromaDB collection for a tenant (GDPR / data erasure)."""
     client = get_chroma_client()
     name = tenant_collection_name(tenant_slug)
     try:
@@ -65,11 +56,6 @@ def delete_tenant_collection(tenant_slug: str) -> None:
 
 
 def build_vector_id(document_id: uuid.UUID, chunk_index: int) -> str:
-    """Build a deterministic, globally unique vector ID.
-
-    Format: {document_id}_{chunk_index}
-    This makes it easy to delete all vectors of a document by prefix.
-    """
     return f"{document_id}_{chunk_index}"
 
 
@@ -81,15 +67,13 @@ def add_chunks_to_collection(
     embeddings: list[list[float]],
     metadatas: list[dict] | None = None,
 ) -> list[str]:
-    """Add chunk vectors to the tenant's collection.
-
-    Returns a list of vector IDs that were inserted.
-    """
     collection = get_tenant_collection(tenant_slug)
     ids = [build_vector_id(document_id, i) for i in range(len(chunks))]
 
     if metadatas is None:
-        metadatas = [{"document_id": str(document_id), "chunk_index": i} for i in range(len(chunks))]
+        metadatas = [
+            {"document_id": str(document_id), "chunk_index": i} for i in range(len(chunks))
+        ]
     else:
         for i, m in enumerate(metadatas):
             m.setdefault("document_id", str(document_id))
@@ -111,9 +95,7 @@ def add_chunks_to_collection(
 
 
 def delete_document_vectors(tenant_slug: str, document_id: uuid.UUID) -> None:
-    """Remove all vectors belonging to a document from the tenant's collection."""
     collection = get_tenant_collection(tenant_slug)
-    # ChromaDB supports where filter on metadata
     collection.delete(where={"document_id": str(document_id)})
     log.info(
         "chroma_document_vectors_deleted",
@@ -129,10 +111,6 @@ def query_collection(
     n_results: int = 5,
     where: dict | None = None,
 ) -> dict:
-    """Query the tenant collection with an embedding vector.
-
-    Returns ChromaDB result dict with ids, documents, metadatas, distances.
-    """
     collection = get_tenant_collection(tenant_slug)
     kwargs: dict = {
         "query_embeddings": [query_embedding],
@@ -140,5 +118,4 @@ def query_collection(
     }
     if where:
         kwargs["where"] = where
-    results = collection.query(**kwargs)
-    return results
+    return collection.query(**kwargs)

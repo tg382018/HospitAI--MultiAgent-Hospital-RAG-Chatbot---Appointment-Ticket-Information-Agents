@@ -7,25 +7,23 @@ Orchestrates the full pipeline:
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-
-from hospitai.application.errors import DomainError
-from hospitai.infrastructure.chunking import chunk_text
-from hospitai.infrastructure.db.models.document import Document, DocumentChunk, DocumentStatus
-from hospitai.infrastructure.db.models.tenant import Tenant
-from hospitai.infrastructure.embeddings import embed_single, embed_texts
-from hospitai.infrastructure.vector_db import (
+from hospitai_agent.chunking import chunk_text
+from hospitai_agent.embeddings import embed_single, embed_texts
+from hospitai_agent.vector_db import (
     add_chunks_to_collection,
     delete_document_vectors,
     query_collection,
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from hospitai.application.errors import DomainError
+from hospitai.infrastructure.db.models.document import Document, DocumentChunk, DocumentStatus
+from hospitai.infrastructure.db.models.tenant import Tenant
 
 log = structlog.get_logger(__name__)
 
@@ -326,10 +324,12 @@ async def retrieve_context(
 
     contexts: list[dict] = []
     for i, doc_text in enumerate(documents):
-        contexts.append({
-            "content": doc_text,
-            "metadata": metadatas[i] if i < len(metadatas) else {},
-            "distance": distances[i] if i < len(distances) else None,
-        })
+        contexts.append(
+            {
+                "content": doc_text,
+                "metadata": metadatas[i] if i < len(metadatas) else {},
+                "distance": distances[i] if i < len(distances) else None,
+            }
+        )
 
     return contexts

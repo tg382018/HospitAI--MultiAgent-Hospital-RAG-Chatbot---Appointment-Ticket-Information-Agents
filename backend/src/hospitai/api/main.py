@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from hospitai_agent.graph import configure_workflow_tools
 from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
+from hospitai_agent.rag_profile import RagInfrastructureProfile, configure_rag_profile
 
 from hospitai.api.errors import register_exception_handlers
 from hospitai.api.middleware.request_id import RequestIdMiddleware
@@ -32,6 +33,18 @@ async def lifespan(_app: FastAPI):
             llm_base_url=settings.llm_base_url,
             llm_temperature=settings.llm_temperature,
             embedding_api_key=settings.embedding_api_key,
+        )
+    )
+    configure_rag_profile(
+        RagInfrastructureProfile(
+            chroma_host=settings.chroma_host,
+            chroma_port=settings.chroma_port,
+            chroma_collection_prefix=settings.chroma_collection_prefix,
+            embedding_model=settings.embedding_model,
+            embedding_api_key=settings.embedding_api_key,
+            embedding_dimensions=settings.embedding_dimensions,
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
         )
     )
     configure_workflow_tools(make_workflow_tools())
