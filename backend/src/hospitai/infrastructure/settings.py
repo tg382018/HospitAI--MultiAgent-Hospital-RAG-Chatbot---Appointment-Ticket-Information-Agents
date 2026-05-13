@@ -49,6 +49,47 @@ class Settings(BaseSettings):
         description="If false, only existing admins can create users (future).",
     )
 
+    # ---- RAG / Vector DB ----
+    chroma_host: str = Field(
+        default="localhost",
+        validation_alias="CHROMA_HOST",
+    )
+    chroma_port: int = Field(
+        default=8001,
+        validation_alias="CHROMA_PORT",
+    )
+    chroma_collection_prefix: str = Field(
+        default="hospitai",
+        validation_alias="CHROMA_COLLECTION_PREFIX",
+    )
+
+    # ---- Embeddings ----
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        validation_alias="EMBEDDING_MODEL",
+    )
+    embedding_api_key: str = Field(
+        default="",
+        validation_alias="EMBEDDING_API_KEY",
+        description="OpenAI API key for embeddings (falls back to OPENAI_API_KEY env).",
+    )
+    embedding_dimensions: int = Field(
+        default=1536,
+        validation_alias="EMBEDDING_DIMENSIONS",
+    )
+
+    # ---- Chunking ----
+    chunk_size: int = Field(
+        default=500,
+        validation_alias="CHUNK_SIZE",
+        description="Max tokens per chunk for document ingestion.",
+    )
+    chunk_overlap: int = Field(
+        default=50,
+        validation_alias="CHUNK_OVERLAP",
+        description="Token overlap between consecutive chunks.",
+    )
+
     def cors_origin_list(self) -> list[str]:
         return [p.strip() for p in self.cors_origins.split(",") if p.strip()]
 

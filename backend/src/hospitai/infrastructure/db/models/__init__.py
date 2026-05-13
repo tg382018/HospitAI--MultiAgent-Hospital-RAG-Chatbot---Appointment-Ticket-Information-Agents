@@ -7,6 +7,7 @@ from hospitai.infrastructure.db.models.appointment import Appointment
 from hospitai.infrastructure.db.models.audit_log import AuditLog
 from hospitai.infrastructure.db.models.clinical import Department, Doctor
 from hospitai.infrastructure.db.models.conversation import Conversation, ConversationMessage
+from hospitai.infrastructure.db.models.document import Document, DocumentChunk
 from hospitai.infrastructure.db.models.tenant import Tenant
 from hospitai.infrastructure.db.models.ticket import Ticket
 from hospitai.infrastructure.db.models.user import User
@@ -19,6 +20,8 @@ __all__ = [
     "ConversationMessage",
     "Department",
     "Doctor",
+    "Document",
+    "DocumentChunk",
     "Tenant",
     "Ticket",
     "User",
