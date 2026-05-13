@@ -15,6 +15,8 @@ type ChatResponse = {
   message: string;
   intent: string;
   sources: string[];
+  rag_used: boolean;
+  escalated: boolean;
   safety_flag: boolean;
   safety_reason: string;
 };
@@ -95,7 +97,13 @@ export function ChatApp() {
           json: body,
         });
         setConversationId(res.conversation_id);
-        setMessages((m) => [...m, { role: 'assistant', content: res.message }]);
+        let assistantText = res.message;
+        if (res.escalated) {
+          assistantText = `⚠️ Acil yönlendirme\n\n${assistantText}`;
+        } else if (res.safety_flag) {
+          assistantText = `⚠️ Güvenlik uyarısı\n\n${assistantText}`;
+        }
+        setMessages((m) => [...m, { role: 'assistant', content: assistantText }]);
       } catch (e) {
         setChatErr(formatErr(e));
         setDraft(text);

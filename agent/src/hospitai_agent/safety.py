@@ -13,6 +13,7 @@ from hospitai_agent.state import ChatState
 _EMERGENCY_KEYWORDS = re.compile(
     r"\b(ambulan[sc]|acil|intihar|kendine\s+z[ea]r\s+ver|kalp\s+kriz|"
     r"nefes\s+alam[iı]yo|bay[iı]l|bilin[cç]\s+kayb|şiddetli\s+kanama|"
+    r"felç|inme|stroke|anafilaksi|boğuluyorum|"
     r"emergency|ambulance|suicide|chest\s+pain|unconscious|severe\s+bleeding)\b",
     re.IGNORECASE,
 )
@@ -21,7 +22,11 @@ _INJECTION_PATTERNS = re.compile(
     r"(ignore\s+(all\s+)?previous\s+instructions|"
     r"you\s+are\s+now\s+|system\s*prompt|"
     r"override\s+your\s+rules|jailbreak|DAN\s+mode|"
-    r"unfiltered\s+mode)",
+    r"unfiltered\s+mode|"
+    r"önceki\s+talimatları\s+yok\s+say|"
+    r"disregard\s+the\s+above|"
+    r"reveal\s+(your\s+)?(system\s+)?prompt|"
+    r"developer\s+mode\s+enabled)",
     re.IGNORECASE,
 )
 
@@ -106,7 +111,14 @@ async def safety_check(state: ChatState) -> ChatState:
 
     pii = check_pii(msg)
     if pii:
-        state.safety_reason = f"pii_detected:{','.join(pii)}"
+        state.safety_flag = True
+        state.safety_reason = f"pii_blocked:{','.join(pii)}"
+        state.response = (
+            "Kimlik numarası veya kart bilgisi gibi hassas verileri "
+            "lütfen bu sohbet üzerinden paylaşmayın. Bu bilgileri yalnızca "
+            "hastanemizin güvenli kanalları veya yüz yüze iletin."
+        )
+        return state
 
     return state
 

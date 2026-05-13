@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from hospitai_agent.state import ChatState
 
 from hospitai.api.deps import CurrentUser
 from hospitai.api.schemas.chat import ChatRequest, ChatResponse
+from hospitai.application.audit import write_audit_log
 from hospitai.application.chat import run_chat
 from hospitai.application.chat.memory import (
     get_or_create_conversation,
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(body: ChatRequest, user: CurrentUser) -> ChatResponse:
+async def chat(request: Request, body: ChatRequest, user: CurrentUser) -> ChatResponse:
     """Send a message to the AI assistant.
 
     The workflow runs: safety → intent classification → routing →
@@ -74,7 +75,10 @@ async def chat(body: ChatRequest, user: CurrentUser) -> ChatResponse:
         history=cs.history,
     )
 
-    # Save assistant response
+    # Save assistant response + optional security audit
+    client = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+
     async with get_session_factory()() as session:
         await save_message(
             session,
@@ -83,6 +87,22 @@ async def chat(body: ChatRequest, user: CurrentUser) -> ChatResponse:
             role="assistant",
             content=result["response"],
         )
+        if result.get("safety_flag"):
+            await write_audit_log(
+                session,
+                tenant_id=user.tenant_id,
+                actor_user_id=user.id,
+                action="chat.safety_block",
+                resource_type="conversation",
+                resource_id=conv.id,
+                payload={
+                    "intent": result.get("intent"),
+                    "reason": result.get("safety_reason", ""),
+                    "escalated": bool(result.get("escalated")),
+                },
+                ip_address=client,
+                user_agent=ua,
+            )
         await session.commit()
 
     return ChatResponse(
@@ -90,6 +110,8 @@ async def chat(body: ChatRequest, user: CurrentUser) -> ChatResponse:
         message=result["response"],
         intent=result["intent"],
         sources=result.get("sources", []),
+        rag_used=bool(result.get("rag_used", False)),
+        escalated=bool(result.get("escalated", False)),
         safety_flag=result.get("safety_flag", False),
         safety_reason=result.get("safety_reason", ""),
     )

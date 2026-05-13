@@ -438,10 +438,30 @@ async def run_chat(
 
     final_state = await graph.ainvoke(initial_state)
 
+    resp = (final_state.get("response") or "").strip()
+    sources = [s for s in (final_state.get("sources") or []) if s]
+    rag_used = bool(final_state.get("rag_used"))
+    safety_flag = bool(final_state.get("safety_flag"))
+    if (
+        sources
+        and rag_used
+        and not safety_flag
+        and resp
+    ):
+        tail = ", ".join(sources[:5])
+        if len(sources) > 5:
+            tail += f" (+{len(sources) - 5})"
+        resp = f"{resp}\n\n— Kaynaklar: {tail}"
+
+    reason = str(final_state.get("safety_reason") or "")
+    escalated = reason == "emergency"
+
     return {
-        "response": final_state["response"],
+        "response": resp,
         "intent": final_state["intent"],
         "sources": final_state["sources"],
-        "safety_flag": final_state["safety_flag"],
-        "safety_reason": final_state["safety_reason"],
+        "rag_used": rag_used,
+        "escalated": escalated,
+        "safety_flag": safety_flag,
+        "safety_reason": reason,
     }

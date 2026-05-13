@@ -28,5 +28,13 @@ class ChatResponse(BaseModel):
     message: str = Field(..., description="Assistant reply")
     intent: str = Field(..., description="Classified intent")
     sources: list[str] = Field(default_factory=list, description="RAG source documents")
+    rag_used: bool = Field(
+        default=False,
+        description="True when the reply used tenant knowledge retrieval.",
+    )
+    escalated: bool = Field(
+        default=False,
+        description="True when the input triggered emergency escalation (112).",
+    )
     safety_flag: bool = Field(default=False)
     safety_reason: str = Field(default="")
