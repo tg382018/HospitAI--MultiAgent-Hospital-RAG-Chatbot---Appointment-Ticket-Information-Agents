@@ -18,6 +18,7 @@ from hospitai_agent.workflow_tools import ChatWorkflowTools
 from hospitai.application import appointments as appt_svc
 from hospitai.application import rag as rag_svc
 from hospitai.application import tickets as ticket_svc
+from hospitai.application.chat.slot_tool_result import wrap_slot_tool_error, wrap_slot_tool_success
 from hospitai.infrastructure.db.session import get_session_factory
 
 log = structlog.get_logger(__name__)
@@ -56,14 +57,18 @@ async def list_available_slots_tool(
         result = await session.execute(stmt)
         tenant = result.scalar_one_or_none()
         if not tenant:
-            return {"success": False, "error": "Hastane bulunamadı."}
+            return wrap_slot_tool_error(
+                outcome="tenant_not_found",
+                error="Hastane bulunamadı.",
+            )
 
         base = (tenant.external_hospital_base_url or "").strip()
+        ext_meta: dict[str, Any] | None = None
         if base:
             from hospitai.infrastructure import hospital_connector as ext
 
             try:
-                slots = await ext.list_external_slots_merged(
+                slots, ext_meta = await ext.list_external_slots_merged(
                     base_url=base,
                     api_key=(tenant.external_hospital_api_key or "").strip() or None,
                     for_date=day,
@@ -72,13 +77,15 @@ async def list_available_slots_tool(
                 )
             except httpx.HTTPError as exc:
                 log.warning("external_slots_http_error", error=str(exc))
-                return {
-                    "success": False,
-                    "error": (
-                        "Dış randevu sistemine şu an ulaşılamıyor. "
-                        "Lütfen daha sonra tekrar deneyin."
-                    ),
-                }
+                msg = (
+                    "Dış randevu sistemine şu an ulaşılamıyor. "
+                    "Lütfen daha sonra tekrar deneyin veya randevu hattını arayın."
+                )
+                return wrap_slot_tool_error(
+                    outcome="upstream_transport",
+                    error=msg,
+                    user_message_tr=msg,
+                )
         else:
             slots = await appt_svc.list_available_slots_for_chat(
                 session,
@@ -88,21 +95,23 @@ async def list_available_slots_tool(
                 doctor_name=doctor_name or None,
             )
 
-        return {
-            "success": True,
-            "date": day.isoformat(),
-            "slots": [
-                {
-                    "doctor": s["doctor_name"],
-                    "department": s["department_name"],
-                    "start": _fmt_dt(s["start_time"]),
-                    "end": _fmt_dt(s["end_time"]),
-                }
-                for s in slots
-            ],
-            "count": len(slots),
-            "source": "external" if base else "internal",
-        }
+        serialized_slots = [
+            {
+                "doctor": s["doctor_name"],
+                "department": s["department_name"],
+                "start": _fmt_dt(s["start_time"]),
+                "end": _fmt_dt(s["end_time"]),
+            }
+            for s in slots
+        ]
+        return wrap_slot_tool_success(
+            day=day,
+            source="external" if base else "internal",
+            serialized_slots=serialized_slots,
+            ext_meta=ext_meta,
+            filter_department=department_name or "",
+            filter_doctor=doctor_name or "",
+        )
 
 
 async def list_available_slots_for_graph(state: ChatState) -> dict[str, Any]:

@@ -71,6 +71,8 @@ _SYSTEM_PROMPTS: dict[str, str] = {
     "appointment": (
         "Sen HospitAI hastane asistanısın. Kullanıcının randevu taleplerine yardımcı oluyorsun. "
         "Araç çıktılarında müsait saatleri veya mevcut randevuları açıkça özetle. "
+        "Özellikle user_message_tr alanı varsa, kullanıcıya iletilecek özeti buna dayandır; "
+        "boş liste veya dış sistem hatası durumlarını olduğu gibi veya nazikçe kısaltarak aktar. "
         "Dış hastane bağlantılı tenantlarda slot listesi dış sistemden gelmiş olabilir; "
         "kesin rezervasyon için portal veya randevu hattını yönlendir. "
         "Doktor, bölüm, tarih ve saat bilgisini netleştirmesini iste. "
@@ -309,6 +311,19 @@ async def _generate_response(state: _GraphState) -> _GraphState:
     for tr in state["tool_results"]:
         tool_name = tr.get("tool", "")
         result = tr.get("result", {})
+        if not isinstance(result, dict):
+            continue
+        user_tr = result.get("user_message_tr")
+        if isinstance(user_tr, str) and user_tr.strip():
+            messages.append(
+                SystemMessage(
+                    content=(
+                        f"Araç: {tool_name}. Kullanıcıya net ve doğru şekilde yanıt ver; "
+                        f"özeti gerektiğinde kısaltabilirsin:\n{user_tr.strip()}"
+                    )
+                )
+            )
+            continue
         if result.get("success"):
             result_msg = f"Araç sonucu ({tool_name}): {result}"
             messages.append(SystemMessage(content=str(result_msg)))
@@ -366,12 +381,18 @@ async def _output_guardrail(state: _GraphState) -> _GraphState:
 def _format_tool_response(state: _GraphState) -> str:
     parts: list[str] = []
     for tr in state["tool_results"]:
+        tool_name = tr.get("tool", "")
         result = tr.get("result", {})
+        if not isinstance(result, dict):
+            continue
+        um = result.get("user_message_tr")
+        if isinstance(um, str) and um.strip():
+            parts.append(um.strip())
+            continue
         if not result.get("success"):
-            parts.append(result.get("error", "Bilinmeyen hata"))
+            parts.append(str(result.get("error", "Bilinmeyen hata")))
             continue
 
-        tool_name = tr.get("tool", "")
         if tool_name == "list_available_slots":
             slots = result.get("slots", [])
             src = result.get("source", "")

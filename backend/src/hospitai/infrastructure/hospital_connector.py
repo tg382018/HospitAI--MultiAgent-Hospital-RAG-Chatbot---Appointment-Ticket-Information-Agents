@@ -87,8 +87,12 @@ async def list_external_slots_merged(
     for_date: date,
     doctor_name_substr: str | None,
     department_substr: str | None,
-) -> list[dict[str, Any]]:
-    """Slots in the same shape as :func:`list_available_slots_for_chat` (platform DB path)."""
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Slots in the same shape as :func:`list_available_slots_for_chat` (platform DB path).
+
+    Returns ``(rows, meta)`` where ``meta`` helps distinguish empty HIS responses:
+    ``matched_doctors``, ``filter_applied``, ``upstream_doctor_count``.
+    """
     doctors = await fetch_external_doctors(base_url=base_url, api_key=api_key)
     dneedle = (doctor_name_substr or "").strip().lower()
     pneedle = (department_substr or "").strip().lower()
@@ -137,7 +141,12 @@ async def list_external_slots_merged(
                 }
             )
     out.sort(key=lambda row: row["start_time"])
-    return out
+    meta = {
+        "matched_doctors": len(selected),
+        "filter_applied": bool(dneedle or pneedle),
+        "upstream_doctor_count": len([d for d in doctors if isinstance(d, dict)]),
+    }
+    return out, meta
 
 
 async def post_external_appointment(
