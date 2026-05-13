@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 
 from hospitai.application.errors import DomainError
 from hospitai.application.permissions import BOOK_FOR_OTHERS_ROLES
@@ -314,7 +315,11 @@ async def list_appointments_for_actor(
     actor: User,
     limit: int = 50,
 ) -> list[Appointment]:
-    stmt = select(Appointment).where(Appointment.tenant_id == tenant_id)
+    stmt = (
+        select(Appointment)
+        .options(selectinload(Appointment.doctor), selectinload(Appointment.department))
+        .where(Appointment.tenant_id == tenant_id)
+    )
     if actor.role not in BOOK_FOR_OTHERS_ROLES:
         stmt = stmt.where(Appointment.patient_user_id == actor.id)
     stmt = stmt.order_by(Appointment.starts_at.desc()).limit(min(limit, 100))

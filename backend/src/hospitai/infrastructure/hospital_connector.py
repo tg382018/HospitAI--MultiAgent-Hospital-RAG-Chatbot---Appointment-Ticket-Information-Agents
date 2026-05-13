@@ -31,6 +31,19 @@ def _as_datetime(value: object) -> datetime:
     raise TypeError(f"expected datetime or ISO string, got {type(value)}")
 
 
+def _department_substr_matches(needle: str, dept_code: str) -> bool:
+    """Match lay / TR department wording to upstream codes like CARDIO, NEURO."""
+    n = needle.strip().lower()
+    c = (dept_code or "").strip().lower()
+    if not n:
+        return True
+    if n in c or c in n:
+        return True
+    cardio = any(k in n for k in ("kardiyo", "kalp", "kardiyoloji")) and "cardio" in c
+    neuro = any(k in n for k in ("nöro", "noroloji", "nöroloji")) and "neuro" in c
+    return cardio or neuro
+
+
 async def fetch_external_doctors(*, base_url: str, api_key: str | None) -> list[dict[str, Any]]:
     norm = normalize_base_url(base_url)
     url = f"{norm}/v1/doctors"
@@ -85,7 +98,9 @@ async def list_external_slots_merged(
         dept_code = str(doc.get("department_code") or "")
         if dneedle and dneedle not in name.lower():
             return False
-        return not (pneedle and pneedle not in dept_code.lower())
+        if not pneedle:
+            return True
+        return _department_substr_matches(pneedle, dept_code)
 
     if dneedle or pneedle:
         selected = [d for d in doctors if isinstance(d, dict) and _matches(d)]

@@ -105,6 +105,19 @@ async def list_available_slots_tool(
         }
 
 
+async def list_available_slots_for_graph(state: ChatState) -> dict[str, Any]:
+    """Graph entrypoint: parse ``user_message`` hints then delegate to slot listing."""
+    from hospitai_agent.slot_params import extract_slot_query_params
+
+    p = extract_slot_query_params(state.user_message)
+    return await list_available_slots_tool(
+        state,
+        department_name=p.get("department_name") or "",
+        doctor_name=p.get("doctor_name") or "",
+        target_date=p.get("target_date") or "",
+    )
+
+
 async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
     """List user's upcoming appointments."""
     async with get_session_factory()() as session:
@@ -127,9 +140,10 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
             "appointments": [
                 {
                     "id": str(a.id),
-                    "doctor": getattr(getattr(a, "doctor", None), "name", "N/A"),
-                    "department": getattr(getattr(a, "department", None), "name", "N/A"),
-                    "start": a.start_time.isoformat() if a.start_time else "",
+                    "doctor": a.doctor.full_name if a.doctor else "N/A",
+                    "department": a.department.name if a.department else "N/A",
+                    "start": a.starts_at.isoformat() if a.starts_at else "",
+                    "end": a.ends_at.isoformat() if a.ends_at else "",
                     "status": a.status.value if hasattr(a.status, "value") else str(a.status),
                 }
                 for a in appointments
@@ -303,7 +317,8 @@ TOOL_REGISTRY: dict[str, Any] = {
 def make_workflow_tools() -> ChatWorkflowTools:
     """Bindings passed to `hospitai_agent.graph.configure_workflow_tools`."""
     return ChatWorkflowTools(
-        list_available_slots=list_available_slots_tool,
+        list_available_slots=list_available_slots_for_graph,
+        list_user_appointments=list_appointments_tool,
         list_tickets=list_tickets_tool,
         retrieve_knowledge=retrieve_knowledge_tool,
     )

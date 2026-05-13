@@ -9,6 +9,7 @@ from typing import Any
 from hospitai_agent.state import ChatState
 
 ListSlotsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
+ListUserAppointmentsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 ListTicketsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 RetrieveFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
 
@@ -18,5 +19,6 @@ class ChatWorkflowTools:
     """Async callables implemented in `hospitai` (DB, RAG, domain services)."""
 
     list_available_slots: ListSlotsFn
+    list_user_appointments: ListUserAppointmentsFn
     list_tickets: ListTicketsFn
     retrieve_knowledge: RetrieveFn

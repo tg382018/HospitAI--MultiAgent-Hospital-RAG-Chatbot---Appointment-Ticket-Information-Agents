@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, TypedDict
 
 import structlog
@@ -20,14 +21,17 @@ log = structlog.get_logger(__name__)
 _SYSTEM_PROMPTS: dict[str, str] = {
     "appointment": (
         "Sen HospitAI hastane asistanısın. Kullanıcının randevu taleplerine yardımcı oluyorsun. "
-        "Mevcut randevuları listeleyebilir, müsait saatleri gösterebilirsin. "
-        "Randevu oluşturmak için gerekli bilgileri topla (doktor, tarih, saat). "
+        "Araç çıktılarında müsait saatleri veya mevcut randevuları açıkça özetle. "
+        "Dış hastane bağlantılı tenantlarda slot listesi dış sistemden gelmiş olabilir; "
+        "kesin rezervasyon için portal veya randevu hattını yönlendir. "
+        "Doktor, bölüm, tarih ve saat bilgisini netleştirmesini iste. "
         "Kesin tanı veya tıbbi tavsiye verme. Her zaman profesyonel ve kibar ol."
     ),
     "complaint": (
         "Sen HospitAI hastane asistanısın. Kullanıcının şikayet/talep oluşturma ve takip "
-        "işlemlerine yardımcı oluyorsun. Şikayet oluşturmak için konu ve açıklama bilgisi topla. "
-        "Mevcut talepleri listeleyebilirsin. Empatik ve çözüm odaklı ol."
+        "işlemlerine yardımcı oluyorsun. Araç çıktısındaki talep listesini özetle; "
+        "boşsa nazikçe belirt. Yeni talep için önce kısa konu ve açıklama iste; "
+        "kullanıcı netleştirmeden kayıt açma. Empatik ve çözüm odaklı ol."
     ),
     "hospital_info": (
         "Sen HospitAI hastane asistanısın. Hastane bölümleri, doktorlar, ziyaret saatleri, "
@@ -36,8 +40,9 @@ _SYSTEM_PROMPTS: dict[str, str] = {
     ),
     "medical_info": (
         "Sen HospitAI hastane asistanısın. Genel tıbbi bilgi sorularını yanıtlıyorsun. "
-        "ASLA kesin tanı koyma veya ilaç tavsiye etme. Her zaman bir sağlık profesyoneline "
-        "danışmayı öner. Bilgi tabanından gelen bağlamı kullan. Bilmediğin konularda dürüst ol."
+        "ASLA kesin tanı koyma, ilaç dozu veya reçete önerme; spesifik tedavi yerine "
+        "genel çerçeve ver. Her zaman bir sağlık profesyoneline danışmayı öner. "
+        "Bilgi tabanından gelen bağlamı kullan. Bilmediğin konularda dürüst ol."
     ),
     "general": (
         "Sen HospitAI hastane asistanısın. Kullanıcılara hastane hizmetleri konusunda yardımcı "
@@ -165,10 +170,43 @@ async def _retrieve_context(state: _GraphState) -> _GraphState:
     return state
 
 
+def _wants_my_appointments_list(text: str) -> bool:
+    return bool(
+        re.search(
+            r"randevularım|randevu\s+listem|mevcut\s+randevu|kay[ıi]tl[ıi]\s+randevu|"
+            r"ald[ıi]ğ[ıi]m\s+randevu|my\s+appointments",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _wants_slot_search(text: str) -> bool:
+    return bool(
+        re.search(
+            r"müsait|boş|uygun|slot|saat|tarih|ne\s+zaman|book|available|schedule|"
+            r"\d{4}-\d{2}-\d{2}|yarın|bugün|tomorrow|today",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
 async def _handle_appointment(state: _GraphState) -> _GraphState:
     cs = _gs_to_cs(state)
-    result = await _tools().list_available_slots(cs)
-    state["tool_results"].append({"tool": "list_available_slots", "result": result})
+    msg = state["user_message"]
+    wants_list = _wants_my_appointments_list(msg)
+    wants_slots = _wants_slot_search(msg)
+    if not wants_list and not wants_slots:
+        wants_slots = True
+
+    if wants_list:
+        listed = await _tools().list_user_appointments(cs)
+        state["tool_results"].append({"tool": "list_appointments", "result": listed})
+
+    if wants_slots:
+        slotted = await _tools().list_available_slots(cs)
+        state["tool_results"].append({"tool": "list_available_slots", "result": slotted})
     return state
 
 
@@ -263,15 +301,19 @@ def _format_tool_response(state: _GraphState) -> str:
         tool_name = tr.get("tool", "")
         if tool_name == "list_available_slots":
             slots = result.get("slots", [])
+            src = result.get("source", "")
+            prefix = "Müsait randevular"
+            if src == "external":
+                prefix += " (dış hastane bağlantısı)"
             if not slots:
-                parts.append(f"{result.get('date', 'Bugün')} için müsait randevu bulunamadı.")
+                parts.append(f"{prefix}: {result.get('date', '')} için kayıt bulunamadı.")
             else:
-                parts.append(f"{result.get('date', 'Bugün')} için müsait randevular:")
+                parts.append(f"{prefix} ({result.get('date', '')}):")
                 for s in slots[:10]:
                     line = f"  • {s['doctor']} - {s['department']}: {s['start']} - {s['end']}"
                     parts.append(line)
                 if len(slots) > 10:
-                    parts.append(f"  ... ve {len(slots) - 10} randevu daha")
+                    parts.append(f"  ... ve {len(slots) - 10} saat daha")
 
         elif tool_name == "list_tickets":
             tickets = result.get("tickets", [])
@@ -281,6 +323,20 @@ def _format_tool_response(state: _GraphState) -> str:
                 parts.append("Talepleriniz:")
                 for t in tickets:
                     parts.append(f"  • [{t['reference']}] {t['subject']} - {t['status']}")
+
+        elif tool_name == "list_appointments":
+            appts = result.get("appointments", [])
+            if not appts:
+                parts.append("Kayıtlı randevunuz bulunmamaktadır.")
+            else:
+                parts.append("Randevularınız:")
+                for a in appts[:15]:
+                    parts.append(
+                        f"  • {a.get('start', '')} — {a.get('doctor', 'N/A')} "
+                        f"({a.get('department', 'N/A')}) [{a.get('status', '')}]"
+                    )
+                if len(appts) > 15:
+                    parts.append(f"  ... ve {len(appts) - 15} randevu daha")
 
         elif tool_name == "create_ticket":
             parts.append(result.get("message", "Talep oluşturuldu."))
