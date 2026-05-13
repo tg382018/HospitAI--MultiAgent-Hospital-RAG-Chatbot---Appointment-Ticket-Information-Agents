@@ -48,7 +48,22 @@ services:
       CHROMA_PERSIST_PATH: /data
       CHROMA_ALLOW_RESET: 'true'
 
+  # Reference hospital-line system (SQLite, real HTTP contract — not a stub).
+  xyz-hospital:
+    build:
+      context: ../integrations/xyz-hospital
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${XYZ_HOSPITAL_PORT:-8010}:8010'
+    environment:
+      XYZ_DATABASE_URL: sqlite+aiosqlite:////data/xyz_hospital.db
+      XYZ_HOSPITAL_AVAILABLE: ${XYZ_HOSPITAL_AVAILABLE:-true}
+    volumes:
+      - xyz_hospital_data:/data
+
 volumes:
   postgres_data:
   redis_data:
   chroma_data:
+  xyz_hospital_data:

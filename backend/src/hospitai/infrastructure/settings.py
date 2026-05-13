@@ -78,6 +78,33 @@ class Settings(BaseSettings):
         validation_alias="EMBEDDING_DIMENSIONS",
     )
 
+    # ---- LLM ----
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        validation_alias="LLM_MODEL",
+        description="Default LLM model for the chat workflow.",
+    )
+    llm_api_key: str = Field(
+        default="",
+        validation_alias="LLM_API_KEY",
+        description="OpenAI API key for LLM calls (falls back to OPENAI_API_KEY env).",
+    )
+    llm_base_url: str | None = Field(
+        default=None,
+        validation_alias="LLM_BASE_URL",
+        description="Optional OpenAI-compatible base URL for LLM calls.",
+    )
+    llm_temperature: float = Field(
+        default=0.0,
+        validation_alias="LLM_TEMPERATURE",
+        description="Temperature for LLM responses.",
+    )
+    max_conversation_history: int = Field(
+        default=20,
+        validation_alias="MAX_CONVERSATION_HISTORY",
+        description="Max number of recent messages to include in context.",
+    )
+
     # ---- Chunking ----
     chunk_size: int = Field(
         default=500,

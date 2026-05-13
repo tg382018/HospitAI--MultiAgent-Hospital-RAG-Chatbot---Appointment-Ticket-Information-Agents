@@ -7,11 +7,14 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from hospitai_agent.graph import configure_workflow_tools
+from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
 
 from hospitai.api.errors import register_exception_handlers
 from hospitai.api.middleware.request_id import RequestIdMiddleware
 from hospitai.api.routers import health
 from hospitai.api.routers.v1 import api_v1
+from hospitai.application.chat.tools import make_workflow_tools
 from hospitai.infrastructure.db.session import dispose_engine
 from hospitai.infrastructure.logging import setup_logging
 from hospitai.infrastructure.settings import get_settings
@@ -22,6 +25,16 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    configure_llm_profile(
+        LLMProfile(
+            llm_model=settings.llm_model,
+            llm_api_key=settings.llm_api_key,
+            llm_base_url=settings.llm_base_url,
+            llm_temperature=settings.llm_temperature,
+            embedding_api_key=settings.embedding_api_key,
+        )
+    )
+    configure_workflow_tools(make_workflow_tools())
     setup_logging(settings)
     log.info("app_startup", environment=settings.environment)
     yield

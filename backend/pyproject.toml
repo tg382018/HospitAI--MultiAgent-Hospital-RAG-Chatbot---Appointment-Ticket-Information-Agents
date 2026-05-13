@@ -9,6 +9,7 @@ description = "Hospital AI Agent Platform — FastAPI backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "hospitai-agent==0.0.1",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.34",
   "pydantic>=2.10",
