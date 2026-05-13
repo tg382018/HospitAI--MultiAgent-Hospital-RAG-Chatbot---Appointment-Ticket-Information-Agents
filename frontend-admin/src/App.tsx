@@ -5,6 +5,7 @@ import {
   authHeaders,
   canManageConnector,
   canManageDocuments,
+  canTenantAdmin,
   fetchMe,
   useAuth,
   type Me,
@@ -33,6 +34,20 @@ type TenantConnector = {
   external_hospital_base_url: string | null;
   has_external_hospital_api_key: boolean;
 };
+
+type AdminUserRow = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: UserRole;
+  is_active: boolean;
+};
+
+type AdminUsersResponse = { users: AdminUserRow[] };
+
+type TenantPolicy = { rag_retrieval_enabled: boolean };
+
+type ReindexQueuedResponse = { task_id: string; document_id: string };
 
 function RoleBanner({ role }: { role: UserRole | undefined }) {
   if (!role) return null;
@@ -158,6 +173,13 @@ export default function App() {
   const [connBase, setConnBase] = useState('');
   const [connKey, setConnKey] = useState('');
   const [connMsg, setConnMsg] = useState<string | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
+  const [adminUsersErr, setAdminUsersErr] = useState<string | null>(null);
+  const [tenantPolicy, setTenantPolicy] = useState<TenantPolicy | null>(null);
+  const [policyErr, setPolicyErr] = useState<string | null>(null);
+  const [policyMsg, setPolicyMsg] = useState<string | null>(null);
+  const [userAdminMsg, setUserAdminMsg] = useState<string | null>(null);
+  const [reindexHint, setReindexHint] = useState<string | null>(null);
 
   const token = accessToken;
   const role = me?.role;
@@ -197,12 +219,52 @@ export default function App() {
     if (token && canManageConnector(role)) void loadConnector();
   }, [token, role, loadConnector]);
 
+  const loadAdminUsers = useCallback(async () => {
+    if (!token || !canTenantAdmin(role)) return;
+    setAdminUsersErr(null);
+    try {
+      const res = await apiFetch<AdminUsersResponse>('/api/v1/admin/users', {
+        headers: authHeaders(token),
+      });
+      setAdminUsers(res.users);
+    } catch (e) {
+      setAdminUsersErr(formatApiError(e));
+    }
+  }, [token, role]);
+
+  const loadTenantPolicy = useCallback(async () => {
+    if (!token || !canTenantAdmin(role)) return;
+    setPolicyErr(null);
+    try {
+      const p = await apiFetch<TenantPolicy>('/api/v1/admin/tenant-policy', {
+        headers: authHeaders(token),
+      });
+      setTenantPolicy(p);
+    } catch (e) {
+      setPolicyErr(formatApiError(e));
+    }
+  }, [token, role]);
+
+  useEffect(() => {
+    if (token && canTenantAdmin(role)) {
+      void loadAdminUsers();
+      void loadTenantPolicy();
+    }
+  }, [token, role, loadAdminUsers, loadTenantPolicy]);
+
   async function onLogout() {
     clear();
     setDocs([]);
     setConnector(null);
     setConnBase('');
     setConnKey('');
+    setAdminUsers([]);
+    setTenantPolicy(null);
+    setAdminUsersErr(null);
+    setPolicyErr(null);
+    setPolicyMsg(null);
+    setUserAdminMsg(null);
+    setReindexHint(null);
   }
 
   async function onIngest(e: React.FormEvent) {
@@ -282,6 +344,52 @@ export default function App() {
     }
   }
 
+  async function onReindexEmbeddings(docId: string) {
+    if (!token || !canManageDocuments(role)) return;
+    setReindexHint(null);
+    try {
+      const r = await apiFetch<ReindexQueuedResponse>(
+        `/api/v1/documents/${docId}/reindex-embeddings`,
+        { method: 'POST', headers: authHeaders(token) }
+      );
+      setReindexHint(`Embedding kuyruğu: ${r.task_id.slice(0, 10)}…`);
+    } catch (e) {
+      setDocsErr(formatApiError(e));
+    }
+  }
+
+  async function onToggleRagPolicy(enabled: boolean) {
+    if (!token || !canTenantAdmin(role)) return;
+    setPolicyMsg(null);
+    try {
+      const p = await apiFetch<TenantPolicy>('/api/v1/admin/tenant-policy', {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        json: { rag_retrieval_enabled: enabled },
+      });
+      setTenantPolicy(p);
+      setPolicyMsg('Politika güncellendi.');
+    } catch (e) {
+      setPolicyErr(formatApiError(e));
+    }
+  }
+
+  async function onPatchUser(userId: string, patch: { role?: UserRole; is_active?: boolean }) {
+    if (!token || !canTenantAdmin(role)) return;
+    setUserAdminMsg(null);
+    try {
+      await apiFetch(`/api/v1/admin/users/${userId}`, {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        json: patch,
+      });
+      setUserAdminMsg('Kullanıcı güncellendi.');
+      await loadAdminUsers();
+    } catch (e) {
+      setUserAdminMsg(formatApiError(e));
+    }
+  }
+
   if (!token || !me) {
     return (
       <div className="min-h-screen bg-slate-50 py-12">
@@ -317,6 +425,81 @@ export default function App() {
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8">
         <RoleBanner role={role} />
 
+        {canTenantAdmin(role) && (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900">Tenant politikası</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              RAG <code className="rounded bg-slate-100 px-1">/documents/retrieve</code> uç noktası
+              tenant bazında kapatılabilir.
+            </p>
+            {policyErr && <p className="mt-2 text-sm text-red-700">{policyErr}</p>}
+            {tenantPolicy && (
+              <div className="mt-4 flex flex-wrap items-center gap-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={tenantPolicy.rag_retrieval_enabled}
+                    onChange={(e) => void onToggleRagPolicy(e.target.checked)}
+                  />
+                  RAG retrieval açık
+                </label>
+              </div>
+            )}
+            {policyMsg && <p className="mt-2 text-sm text-slate-600">{policyMsg}</p>}
+          </section>
+        )}
+
+        {canTenantAdmin(role) && (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">Kullanıcılar</h2>
+              <button
+                type="button"
+                onClick={() => void loadAdminUsers()}
+                className="text-sm text-sky-700 hover:underline"
+              >
+                Yenile
+              </button>
+            </div>
+            {adminUsersErr && <p className="mt-2 text-sm text-red-700">{adminUsersErr}</p>}
+            {userAdminMsg && <p className="mt-2 text-sm text-slate-600">{userAdminMsg}</p>}
+            <ul className="mt-4 divide-y divide-slate-100">
+              {adminUsers.map((u) => (
+                <li key={u.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                  <div>
+                    <p className="font-medium text-slate-900">{u.email}</p>
+                    <p className="text-xs text-slate-500">
+                      {u.full_name ?? '—'} · {u.role} · {u.is_active ? 'aktif' : 'pasif'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      className="rounded border border-slate-300 px-2 py-1 text-xs"
+                      value={u.role}
+                      disabled={u.id === me.id}
+                      onChange={(e) => void onPatchUser(u.id, { role: e.target.value as UserRole })}
+                    >
+                      {(['admin', 'staff', 'doctor', 'patient', 'operator'] as const).map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={u.id === me.id}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      onClick={() => void onPatchUser(u.id, { is_active: !u.is_active })}
+                    >
+                      {u.is_active ? 'Pasifleştir' : 'Aktifleştir'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-slate-900">RAG dokümanları</h2>
@@ -329,6 +512,7 @@ export default function App() {
             </button>
           </div>
           {docsErr && <p className="mt-2 text-sm text-red-700">{docsErr}</p>}
+          {reindexHint && <p className="mt-2 text-sm text-sky-800">{reindexHint}</p>}
           <ul className="mt-4 divide-y divide-slate-100">
             {docs.length === 0 && !docsErr && (
               <li className="py-6 text-center text-sm text-slate-500">Henüz doküman yok.</li>
@@ -343,13 +527,24 @@ export default function App() {
                   </p>
                 </div>
                 {canManageDocuments(role) && (
-                  <button
-                    type="button"
-                    onClick={() => void onDelete(d.id)}
-                    className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
-                  >
-                    Sil
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    {d.status === 'completed' && (
+                      <button
+                        type="button"
+                        onClick={() => void onReindexEmbeddings(d.id)}
+                        className="rounded border border-sky-200 px-2 py-1 text-xs text-sky-800 hover:bg-sky-50"
+                      >
+                        Embedding yenile
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void onDelete(d.id)}
+                      className="rounded border border-red-200 px-2 py-1 text-xs text-red-700 hover:bg-red-50"
+                    >
+                      Sil
+                    </button>
+                  </div>
                 )}
               </li>
             ))}

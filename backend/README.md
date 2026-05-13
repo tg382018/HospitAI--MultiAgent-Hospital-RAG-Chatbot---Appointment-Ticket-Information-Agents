@@ -23,6 +23,8 @@ Python / FastAPI servisi. Katmanlar:
 - **Refresh**: `POST /api/v1/auth/refresh` — `refresh_token`.
 - **Profil**: `GET /api/v1/users/me` — `Authorization: Bearer <access>`.
 - **RBAC örneği**: `GET /api/v1/admin/ping` — yalnızca `admin`.
+- **Admin tenant**: `GET/PATCH /api/v1/admin/tenant-policy` (RAG `retrieve` aç/kapa), `GET/PATCH /api/v1/admin/users/{id}`, `GET /api/v1/admin/users`, connector uçları (`/admin/tenant-connector`).
+- **Auth rate limit** (SlowAPI, IP başına): login **30/dk**, register **15/dk**, refresh **60/dk** — aşımda **429** `error.code=rate_limited`.
 - **İç servis**: `GET /api/v1/internal/ping` — `INTERNAL_API_KEY` tanımlıysa `X-Internal-Key` zorunlu.
 
 ### Randevu ve ticket (domain API)

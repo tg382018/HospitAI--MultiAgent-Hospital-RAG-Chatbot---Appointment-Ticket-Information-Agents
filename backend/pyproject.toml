@@ -26,6 +26,7 @@ dependencies = [
   "aiofiles>=24.1",
   "httpx>=0.28",
   "celery[redis]>=5.4",
+  "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from hospitai.api.deps import SessionDep, SettingsDep
 from hospitai.api.errors import AppError
+from hospitai.api.limiter import limiter
 from hospitai.api.schemas.auth import (
     LoginRequest,
     RefreshRequest,
@@ -25,7 +26,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, session: SessionDep, settings: SettingsDep) -> TokenResponse:
+@limiter.limit("30/minute")
+async def login(
+    request: Request,
+    body: LoginRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> TokenResponse:
     try:
         user = await authenticate_user(
             session,
@@ -44,7 +51,9 @@ async def login(body: LoginRequest, session: SessionDep, settings: SettingsDep) 
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
+@limiter.limit("15/minute")
 async def register(
+    request: Request,
     body: RegisterRequest,
     session: SessionDep,
     settings: SettingsDep,
@@ -71,7 +80,9 @@ async def register(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("60/minute")
 async def refresh(
+    request: Request,
     body: RefreshRequest,
     session: SessionDep,
     settings: SettingsDep,

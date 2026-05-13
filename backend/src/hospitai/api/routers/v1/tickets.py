@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+
+import structlog
 from fastapi import APIRouter, Query
 
 from hospitai.api.deps import CurrentUser, SessionDep
@@ -10,6 +13,9 @@ from hospitai.api.schemas.tickets import CreateTicketRequest, TicketResponse
 from hospitai.application.errors import DomainError
 from hospitai.application.tickets import create_ticket, get_ticket_by_reference, list_tickets
 from hospitai.infrastructure.db.models.enums import TicketStatus
+from hospitai.workers.tasks import notify_domain_event
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -51,6 +57,14 @@ async def create_ticket_item(
     except DomainError as e:
         await session.rollback()
         raise_from_domain(e)
+    try:
+        notify_domain_event.delay(
+            str(current.tenant_id),
+            "ticket.created",
+            json.dumps({"reference": ticket.reference, "reporter_id": str(current.id)}),
+        )
+    except Exception:
+        log.warning("notify_enqueue_failed", exc_info=True)
     return TicketResponse.model_validate(ticket)
 
 

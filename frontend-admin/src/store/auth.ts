@@ -48,3 +48,7 @@ export function canManageDocuments(role: UserRole | undefined): boolean {
 export function canManageConnector(role: UserRole | undefined): boolean {
   return role === 'admin';
 }
+
+export function canTenantAdmin(role: UserRole | undefined): boolean {
+  return role === 'admin';
+}

@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from hospitai.api.schemas.errors import ErrorResponse
@@ -82,6 +83,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content=jsonable_encoder(ErrorResponse(error=err)),
+        )
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+        detail = getattr(exc, "detail", None)
+        message = detail if isinstance(detail, str) else "Too many requests"
+        log.warning("rate_limited", message=message)
+        return JSONResponse(
+            status_code=429,
+            content=_error_payload("rate_limited", message, request),
         )
 
     @app.exception_handler(Exception)

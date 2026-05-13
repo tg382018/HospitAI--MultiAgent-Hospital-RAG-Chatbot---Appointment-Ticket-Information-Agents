@@ -13,3 +13,4 @@ def test_tasks_registered() -> None:
     names = {t.name for t in celery_app.tasks.values() if t.name}
     assert "hospitai.workers.ping" in names
     assert "hospitai.workers.reindex_document_embeddings" in names
+    assert "hospitai.workers.notify_domain_event" in names

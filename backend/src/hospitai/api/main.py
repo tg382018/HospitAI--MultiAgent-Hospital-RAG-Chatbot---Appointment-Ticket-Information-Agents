@@ -12,6 +12,7 @@ from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
 from hospitai_agent.rag_profile import RagInfrastructureProfile, configure_rag_profile
 
 from hospitai.api.errors import register_exception_handlers
+from hospitai.api.limiter import limiter
 from hospitai.api.middleware.request_id import RequestIdMiddleware
 from hospitai.api.routers import health
 from hospitai.api.routers.v1 import api_v1
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         **docs_kwargs,
     )
+    app.state.limiter = limiter
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list(),

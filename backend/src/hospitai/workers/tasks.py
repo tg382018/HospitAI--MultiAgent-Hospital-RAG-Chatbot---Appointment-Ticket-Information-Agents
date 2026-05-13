@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -20,6 +21,22 @@ log = structlog.get_logger(__name__)
 @celery_app.task(name="hospitai.workers.ping")
 def ping() -> dict[str, bool]:
     """Cheap health check for broker + worker."""
+    return {"ok": True}
+
+
+@celery_app.task(name="hospitai.workers.notify_domain_event")
+def notify_domain_event(tenant_id: str, event_type: str, payload_json: str) -> dict[str, bool]:
+    """Async notification hook (e-mail/push later); today: structured log for workers."""
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError:
+        payload = {"raw": payload_json}
+    log.info(
+        "domain_event",
+        tenant_id=tenant_id,
+        event_type=event_type,
+        payload=payload,
+    )
     return {"ok": True}
 
 

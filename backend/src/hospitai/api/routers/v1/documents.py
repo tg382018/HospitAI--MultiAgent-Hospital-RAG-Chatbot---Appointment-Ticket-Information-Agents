@@ -34,6 +34,7 @@ from hospitai.application.rag import (
     list_documents,
     retrieve_context,
 )
+from hospitai.application.tenant_policy import rag_retrieval_enabled
 from hospitai.workers.tasks import reindex_document_embeddings_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -230,6 +231,15 @@ async def retrieve_endpoint(
 
     if tenant is None:
         raise_from_domain(DomainError("tenant_not_found", "Tenant not found", status_code=404))
+
+    if not rag_retrieval_enabled(tenant):
+        raise_from_domain(
+            DomainError(
+                "rag_disabled",
+                "RAG retrieval is disabled for this tenant",
+                status_code=403,
+            )
+        )
 
     try:
         results = await retrieve_context(
