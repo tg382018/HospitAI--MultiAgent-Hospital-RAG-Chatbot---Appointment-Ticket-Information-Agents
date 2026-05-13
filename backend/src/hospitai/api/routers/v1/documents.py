@@ -5,6 +5,7 @@ Endpoints:
 - GET    /documents               → List documents for the tenant
 - GET    /documents/{id}          → Get a single document
 - DELETE /documents/{id}          → Delete a document + its vectors
+- POST   /documents/{id}/reindex-embeddings → Queue Celery job to refresh vectors (admin/staff)
 - POST   /documents/retrieve      → Retrieve relevant chunks for a query
 """
 
@@ -20,9 +21,10 @@ from hospitai.api.schemas.documents import (
     DocumentListResponse,
     DocumentResponse,
     IngestTextRequest,
+    ReindexQueuedResponse,
+    RetrievedChunk,
     RetrieveRequest,
     RetrieveResponse,
-    RetrievedChunk,
 )
 from hospitai.application.errors import DomainError
 from hospitai.application.rag import (
@@ -32,6 +34,7 @@ from hospitai.application.rag import (
     list_documents,
     retrieve_context,
 )
+from hospitai.workers.tasks import reindex_document_embeddings_task
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -49,7 +52,6 @@ async def ingest_text_endpoint(
 
     Only admin and staff roles can ingest documents.
     """
-    from hospitai.api.deps import require_roles
     from hospitai.infrastructure.db.models.enums import UserRole
 
     if current.role not in {UserRole.ADMIN, UserRole.STAFF}:
@@ -59,6 +61,7 @@ async def ingest_text_endpoint(
 
     # Load tenant
     from sqlalchemy import select
+
     from hospitai.infrastructure.db.models.tenant import Tenant
 
     tenant_stmt = select(Tenant).where(Tenant.id == current.tenant_id)
@@ -101,9 +104,7 @@ async def list_documents_endpoint(
         status=status,
         limit=limit,
     )
-    return DocumentListResponse(
-        documents=[DocumentResponse.model_validate(d) for d in docs]
-    )
+    return DocumentListResponse(documents=[DocumentResponse.model_validate(d) for d in docs])
 
 
 # ---- Get single document ---------------------------------------------------
@@ -149,6 +150,7 @@ async def delete_document_endpoint(
 
     # Load tenant
     from sqlalchemy import select
+
     from hospitai.infrastructure.db.models.tenant import Tenant
 
     tenant_stmt = select(Tenant).where(Tenant.id == current.tenant_id)
@@ -165,6 +167,43 @@ async def delete_document_endpoint(
         raise_from_domain(e)
 
 
+# ---- Reindex embeddings (Celery) -------------------------------------------
+
+
+@router.post(
+    "/{document_id}/reindex-embeddings",
+    response_model=ReindexQueuedResponse,
+    status_code=202,
+)
+async def reindex_embeddings_endpoint(
+    session: SessionDep,
+    current: CurrentUser,
+    document_id: uuid.UUID,
+) -> ReindexQueuedResponse:
+    """Queue a Celery job to recompute vectors from stored chunks (embedding model change, repair).
+
+    Admin/staff only. Requires a running worker and Redis broker.
+    """
+    from hospitai.infrastructure.db.models.enums import UserRole
+
+    if current.role not in {UserRole.ADMIN, UserRole.STAFF}:
+        raise_from_domain(
+            DomainError("forbidden", "Only admin/staff can reindex documents", status_code=403)
+        )
+
+    try:
+        await get_document(
+            session,
+            tenant_id=current.tenant_id,
+            document_id=document_id,
+        )
+    except DomainError as e:
+        raise_from_domain(e)
+
+    async_result = reindex_document_embeddings_task.delay(str(document_id))
+    return ReindexQueuedResponse(task_id=async_result.id, document_id=document_id)
+
+
 # ---- RAG retrieval ---------------------------------------------------------
 
 
@@ -178,6 +217,7 @@ async def retrieve_endpoint(
     All authenticated users can query the RAG pipeline for their tenant.
     """
     from sqlalchemy import select
+
     from hospitai.infrastructure.db.models.tenant import Tenant
     from hospitai.infrastructure.db.session import get_session_factory
 

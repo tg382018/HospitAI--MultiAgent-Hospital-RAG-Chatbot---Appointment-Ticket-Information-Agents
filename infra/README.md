@@ -56,6 +56,10 @@ Chroma konteyner içinde 8000 portunda dinler; FastAPI’nin yerelde 8000 kullan
 
 Şifre veya port değiştirirsen bu dosyaları `infra/.env` ile uyumlu tut.
 
+## Celery
+
+Backend embedding reindex worker’ı Redis’e bağlanır (`CELERY_BROKER_URL` → `backend/.env.example`). Yerelde `npm run docker:up` ile Redis ayağa kalktıktan sonra `backend/README.md` içindeki `celery -A hospitai.workers.celery_app worker` komutunu kullan.
+
 ## Sorun giderme
 
 **Port zaten kullanılıyor** (ör. `6379`, `5432`): `cp infra/env.example infra/.env` yapıp `POSTGRES_PORT`, `REDIS_PORT` veya `CHROMA_HOST_PORT` değerlerini boşta bir porta çevir; `backend/.env` içindeki URL’leri aynı şekilde güncelle.

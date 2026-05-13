@@ -7,7 +7,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Ingest text (manual / FAQ)
 # ---------------------------------------------------------------------------
@@ -52,6 +51,14 @@ class DocumentResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentResponse]
+
+
+class ReindexQueuedResponse(BaseModel):
+    """Celery task accepted for embedding refresh."""
+
+    task_id: str
+    document_id: uuid.UUID
+    detail: str = "queued"
 
 
 # ---------------------------------------------------------------------------

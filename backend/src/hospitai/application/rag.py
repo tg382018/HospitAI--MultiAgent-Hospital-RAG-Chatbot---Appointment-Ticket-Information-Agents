@@ -20,6 +20,7 @@ from hospitai_agent.vector_db import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from hospitai.application.errors import DomainError
 from hospitai.infrastructure.db.models.document import Document, DocumentChunk, DocumentStatus
@@ -260,6 +261,80 @@ async def delete_document(
     await session.flush()
 
     log.info("document_deleted", document_id=str(document_id), tenant_slug=tenant.slug)
+
+
+# ---------------------------------------------------------------------------
+# Reindex embeddings (same chunk text, new vectors — e.g. embedding model change)
+# ---------------------------------------------------------------------------
+
+
+async def reindex_document_embeddings(
+    session: AsyncSession,
+    *,
+    document_id: uuid.UUID,
+) -> Document:
+    """Recompute embeddings from stored SQL chunks and upsert Chroma vectors.
+
+    Intended for Celery or maintenance after changing embedding settings.
+    """
+    stmt = (
+        select(Document)
+        .where(Document.id == document_id)
+        .options(selectinload(Document.chunks), selectinload(Document.tenant))
+    )
+    result = await session.execute(stmt)
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise DomainError("document_not_found", "Document not found", status_code=404)
+    if doc.status != DocumentStatus.COMPLETED.value:
+        raise DomainError(
+            "document_not_ready",
+            "Only completed documents can be reindexed",
+            status_code=409,
+        )
+    chunks = sorted(doc.chunks, key=lambda c: c.chunk_index)
+    if not chunks:
+        raise DomainError("no_chunks", "Document has no stored chunks", status_code=409)
+
+    tenant = doc.tenant
+    if tenant is None:
+        raise DomainError("tenant_not_found", "Tenant not found", status_code=404)
+
+    chunk_texts = [c.content for c in chunks]
+    embeddings = await asyncio.to_thread(embed_texts, chunk_texts)
+
+    await asyncio.to_thread(delete_document_vectors, tenant.slug, document_id)
+
+    vector_ids = await asyncio.to_thread(
+        add_chunks_to_collection,
+        tenant.slug,
+        document_id=doc.id,
+        chunks=chunk_texts,
+        embeddings=embeddings,
+        metadatas=[
+            {
+                "document_id": str(doc.id),
+                "title": doc.title,
+                "source_type": doc.source_type,
+                "chunk_index": c.chunk_index,
+            }
+            for c in chunks
+        ],
+    )
+
+    for i, db_chunk in enumerate(chunks):
+        db_chunk.vector_id = vector_ids[i] if i < len(vector_ids) else None
+
+    doc.error_message = None
+    await session.flush()
+
+    log.info(
+        "document_embeddings_reindexed",
+        document_id=str(doc.id),
+        tenant_slug=tenant.slug,
+        chunks=len(chunks),
+    )
+    return doc
 
 
 # ---------------------------------------------------------------------------

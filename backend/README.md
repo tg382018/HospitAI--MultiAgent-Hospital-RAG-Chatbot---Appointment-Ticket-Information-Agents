@@ -68,6 +68,22 @@ alembic revision --autogenerate -m "kisa_aciklama"
 alembic upgrade head
 ```
 
+## Celery worker (RAG embedding reindex)
+
+Redis (`infra/docker-compose.yml` içindeki `redis` servisi) broker olarak kullanılır. `backend/.env` içinde `CELERY_BROKER_URL` (varsayılan `redis://127.0.0.1:6379/0`) tanımlı olmalı.
+
+Ayrı bir terminalde, `agent` paketinin kurulu olduğu ortamda:
+
+```bash
+cd backend
+pip install -e ../agent
+pip install -e ".[dev]"
+celery -A hospitai.workers.celery_app worker -l INFO
+```
+
+- **`POST /api/v1/documents/{id}/reindex-embeddings`** (admin/staff): işi kuyruğa atar, `202` ile `task_id` döner.
+- Tamamlanmış (`completed`) dokümanların SQL’deki chunk metinleri yeniden embed edilir ve Chroma güncellenir.
+
 ## Geliştirme
 
 ```bash

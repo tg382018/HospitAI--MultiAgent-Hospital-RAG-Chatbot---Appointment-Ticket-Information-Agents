@@ -9,12 +9,14 @@ from pydantic import BaseModel, Field
 
 class ChatMessage(BaseModel):
     """Single message in conversation history."""
+
     role: str = Field(..., description="'user' or 'assistant'")
     content: str
 
 
 class ChatRequest(BaseModel):
     """POST /chat request body."""
+
     message: str = Field(..., min_length=1, max_length=4000, description="User message")
     conversation_id: uuid.UUID | None = Field(
         None,
@@ -24,6 +26,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """POST /chat response body."""
+
     conversation_id: uuid.UUID
     message: str = Field(..., description="Assistant reply")
     intent: str = Field(..., description="Classified intent")

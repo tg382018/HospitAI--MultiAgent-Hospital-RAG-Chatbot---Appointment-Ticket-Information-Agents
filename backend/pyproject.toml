@@ -25,6 +25,7 @@ dependencies = [
   "python-multipart>=0.0.18",
   "aiofiles>=24.1",
   "httpx>=0.28",
+  "celery[redis]>=5.4",
 ]
 
 [project.optional-dependencies]

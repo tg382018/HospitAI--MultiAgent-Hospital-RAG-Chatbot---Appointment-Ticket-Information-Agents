@@ -117,6 +117,17 @@ class Settings(BaseSettings):
         description="Token overlap between consecutive chunks.",
     )
 
+    # ---- Celery (background workers) ----
+    celery_broker_url: str = Field(
+        default="redis://127.0.0.1:6379/0",
+        validation_alias="CELERY_BROKER_URL",
+    )
+    celery_result_backend: str | None = Field(
+        default=None,
+        validation_alias="CELERY_RESULT_BACKEND",
+        description="Defaults to CELERY_BROKER_URL when unset.",
+    )
+
     def cors_origin_list(self) -> list[str]:
         return [p.strip() for p in self.cors_origins.split(",") if p.strip()]
 
