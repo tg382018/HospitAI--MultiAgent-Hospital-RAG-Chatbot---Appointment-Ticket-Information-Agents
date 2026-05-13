@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import AsyncIterator
 from typing import Any, TypedDict
 
 import structlog
@@ -17,6 +19,53 @@ from hospitai_agent.state import ChatState
 from hospitai_agent.workflow_tools import ChatWorkflowTools
 
 log = structlog.get_logger(__name__)
+
+
+def _chunk_text(chunk: Any) -> str:
+    """Extract plain text from a streamed chat model chunk."""
+    content = getattr(chunk, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return ""
+
+
+def _postprocess_chat_result(final_state: dict[str, Any]) -> dict[str, Any]:
+    """Apply source footer and flags (shared by sync + SSE chat)."""
+    resp = (final_state.get("response") or "").strip()
+    sources = [s for s in (final_state.get("sources") or []) if s]
+    rag_used = bool(final_state.get("rag_used"))
+    safety_flag = bool(final_state.get("safety_flag"))
+    if sources and rag_used and not safety_flag and resp:
+        tail = ", ".join(sources[:5])
+        if len(sources) > 5:
+            tail += f" (+{len(sources) - 5})"
+        resp = f"{resp}\n\n— Kaynaklar: {tail}"
+
+    reason = str(final_state.get("safety_reason") or "")
+    escalated = reason == "emergency"
+
+    return {
+        "response": resp,
+        "intent": final_state.get("intent", "unknown"),
+        "sources": list(final_state.get("sources") or []),
+        "rag_used": rag_used,
+        "escalated": escalated,
+        "safety_flag": safety_flag,
+        "safety_reason": reason,
+    }
+
+
+def _sse_line(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
 
 _SYSTEM_PROMPTS: dict[str, str] = {
     "appointment": (
@@ -263,23 +312,43 @@ async def _generate_response(state: _GraphState) -> _GraphState:
     messages.append(HumanMessage(content=state["user_message"]))
 
     profile = get_llm_profile()
+    try:
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+    except Exception:
+        writer = None
+
     if not (profile.llm_api_key or profile.embedding_api_key):
         if state["tool_results"]:
             state["response"] = _format_tool_response(state)
         else:
             state["response"] = _GENERAL_FALLBACK
+        if writer is not None and state["response"]:
+            writer({"type": "token", "text": state["response"]})
         return state
 
     llm = get_llm(profile)
     try:
-        result = await llm.ainvoke(messages)
-        state["response"] = result.content.strip()
+        if writer is None:
+            result = await llm.ainvoke(messages)
+            state["response"] = result.content.strip()
+        else:
+            parts: list[str] = []
+            async for chunk in llm.astream(messages):
+                piece = _chunk_text(chunk)
+                if piece:
+                    parts.append(piece)
+                    writer({"type": "token", "text": piece})
+            state["response"] = "".join(parts).strip()
     except Exception as exc:
         log.error("llm_response_error", error=str(exc))
         state["response"] = (
             "Üzgünüm, şu anda bir teknik sorun yaşıyorum. "
             "Lütfen daha sonra tekrar deneyin veya hastane bilgi hattını arayın."
         )
+        if writer is not None and state["response"]:
+            writer({"type": "token", "text": state["response"]})
 
     return state
 
@@ -437,31 +506,45 @@ async def run_chat(
     )
 
     final_state = await graph.ainvoke(initial_state)
+    return _postprocess_chat_result(dict(final_state))
 
-    resp = (final_state.get("response") or "").strip()
-    sources = [s for s in (final_state.get("sources") or []) if s]
-    rag_used = bool(final_state.get("rag_used"))
-    safety_flag = bool(final_state.get("safety_flag"))
-    if (
-        sources
-        and rag_used
-        and not safety_flag
-        and resp
-    ):
-        tail = ", ".join(sources[:5])
-        if len(sources) > 5:
-            tail += f" (+{len(sources) - 5})"
-        resp = f"{resp}\n\n— Kaynaklar: {tail}"
 
-    reason = str(final_state.get("safety_reason") or "")
-    escalated = reason == "emergency"
-
-    return {
-        "response": resp,
-        "intent": final_state["intent"],
-        "sources": final_state["sources"],
-        "rag_used": rag_used,
-        "escalated": escalated,
-        "safety_flag": safety_flag,
-        "safety_reason": reason,
-    }
+async def iter_chat_sse(
+    *,
+    user_message: str,
+    tenant_slug: str,
+    user_id: str = "",
+    user_role: str = "patient",
+    history: list[dict[str, str]] | None = None,
+) -> AsyncIterator[str]:
+    """Run the chat graph with LangGraph custom stream (LLM tokens) + SSE lines."""
+    graph = _get_graph()
+    initial_state: _GraphState = _GraphState(
+        user_message=user_message,
+        tenant_slug=tenant_slug,
+        user_role=user_role,
+        user_id=user_id,
+        intent="unknown",
+        rag_context="",
+        rag_used=False,
+        tool_results=[],
+        safety_flag=False,
+        safety_reason="",
+        history=history or [],
+        response="",
+        sources=[],
+    )
+    acc: dict[str, Any] = dict(initial_state)
+    async for mode, chunk in graph.astream(initial_state, stream_mode=["custom", "updates"]):
+        if mode == "custom" and isinstance(chunk, dict) and chunk.get("type") == "token":
+            text = chunk.get("text")
+            if text:
+                yield _sse_line("token", {"text": text})
+        elif mode == "updates" and isinstance(chunk, dict):
+            for _node, delta in chunk.items():
+                if isinstance(delta, dict):
+                    acc.update(delta)
+    packed = _postprocess_chat_result(acc)
+    out = dict(packed)
+    out["message"] = packed["response"]
+    yield _sse_line("final", out)

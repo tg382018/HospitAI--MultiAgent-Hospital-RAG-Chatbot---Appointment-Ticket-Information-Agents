@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useState } from 'react';
 
-import { apiFetch } from './lib/api';
+import { apiFetch, streamChat } from './lib/api';
 import { useAuthStore } from './store/auth';
 
 type TokenResponse = {
@@ -8,17 +8,6 @@ type TokenResponse = {
   refresh_token: string;
   token_type: string;
   expires_in: number;
-};
-
-type ChatResponse = {
-  conversation_id: string;
-  message: string;
-  intent: string;
-  sources: string[];
-  rag_used: boolean;
-  escalated: boolean;
-  safety_flag: boolean;
-  safety_reason: string;
 };
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string };
@@ -87,26 +76,64 @@ export function ChatApp() {
       setChatErr('');
       setSending(true);
       setDraft('');
-      setMessages((m) => [...m, { role: 'user', content: text }]);
+      setMessages((m) => [
+        ...m,
+        { role: 'user', content: text },
+        { role: 'assistant', content: '' },
+      ]);
+      let acc = '';
       try {
         const body: { message: string; conversation_id?: string } = { message: text };
         if (conversationId) body.conversation_id = conversationId;
-        const res = await apiFetch<ChatResponse>('/api/v1/chat', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
-          json: body,
-        });
-        setConversationId(res.conversation_id);
-        let assistantText = res.message;
-        if (res.escalated) {
-          assistantText = `⚠️ Acil yönlendirme\n\n${assistantText}`;
-        } else if (res.safety_flag) {
-          assistantText = `⚠️ Güvenlik uyarısı\n\n${assistantText}`;
-        }
-        setMessages((m) => [...m, { role: 'assistant', content: assistantText }]);
+        await streamChat(
+          '/api/v1/chat/stream',
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accessToken}` },
+            json: body,
+          },
+          {
+            onMeta: (d) => setConversationId(d.conversation_id),
+            onToken: (t) => {
+              acc += t;
+              setMessages((m) => {
+                const next = [...m];
+                const last = next.length - 1;
+                if (last >= 0 && next[last].role === 'assistant') {
+                  next[last] = { role: 'assistant', content: acc };
+                }
+                return next;
+              });
+            },
+            onFinal: (d) => {
+              let msg = d.message;
+              if (d.escalated) msg = `⚠️ Acil yönlendirme\n\n${msg}`;
+              else if (d.safety_flag) msg = `⚠️ Güvenlik uyarısı\n\n${msg}`;
+              setMessages((m) => {
+                const next = [...m];
+                const last = next.length - 1;
+                if (last >= 0 && next[last].role === 'assistant') {
+                  next[last] = { role: 'assistant', content: msg };
+                }
+                return next;
+              });
+            },
+            onError: (m) => {
+              throw new Error(m);
+            },
+          }
+        );
       } catch (e) {
         setChatErr(formatErr(e));
         setDraft(text);
+        setMessages((m) => {
+          if (m.length < 2) return m;
+          const a = m[m.length - 1];
+          const u = m[m.length - 2];
+          if (u.role === 'user' && u.content === text && a.role === 'assistant')
+            return m.slice(0, -2);
+          return m;
+        });
       } finally {
         setSending(false);
       }
