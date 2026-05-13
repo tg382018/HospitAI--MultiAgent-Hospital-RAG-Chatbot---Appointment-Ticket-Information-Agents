@@ -11,6 +11,7 @@ from hospitai_agent.state import ChatState
 ListSlotsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 ListUserAppointmentsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 ListTicketsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
+GetTicketByReferenceFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 RetrieveFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
 
 
@@ -21,4 +22,5 @@ class ChatWorkflowTools:
     list_available_slots: ListSlotsFn
     list_user_appointments: ListUserAppointmentsFn
     list_tickets: ListTicketsFn
+    get_ticket_by_reference: GetTicketByReferenceFn
     retrieve_knowledge: RetrieveFn

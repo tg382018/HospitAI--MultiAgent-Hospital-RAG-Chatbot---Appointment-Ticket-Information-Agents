@@ -35,8 +35,8 @@ _KEYWORD_MAP: list[tuple[str, re.Pattern[str]]] = [
     (
         "complaint",
         re.compile(
-            r"\b(şikayet|sorun|problem|ticket|talep|başvuru|memnuniyetsiz|"
-            r"complaint|issue|ticket|problem|dissatisfied)\b",
+            r"\b(şikayet|sorun|problem|ticket|talep|başvuru|memnuniyetsiz|referans|"
+            r"complaint|issue|dissatisfied)\b|\bTKT-[a-fA-F0-9]{12,32}\b",
             re.IGNORECASE,
         ),
     ),

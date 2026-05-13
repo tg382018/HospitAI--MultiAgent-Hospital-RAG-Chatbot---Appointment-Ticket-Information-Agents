@@ -19,6 +19,8 @@ from hospitai.application import appointments as appt_svc
 from hospitai.application import rag as rag_svc
 from hospitai.application import tickets as ticket_svc
 from hospitai.application.chat.slot_tool_result import wrap_slot_tool_error, wrap_slot_tool_success
+from hospitai.application.errors import DomainError
+from hospitai.infrastructure.db.models.enums import TicketPriority
 from hospitai.infrastructure.db.session import get_session_factory
 
 log = structlog.get_logger(__name__)
@@ -185,10 +187,11 @@ async def create_ticket_tool(
         ticket = await ticket_svc.create_ticket(
             session,
             tenant_id=tenant.id,
-            user_id=user.id,
+            actor=user,
             subject=subject,
             description=description,
             category=category,
+            priority=TicketPriority.MEDIUM,
         )
         await session.commit()
 
@@ -213,7 +216,9 @@ async def list_tickets_tool(state: ChatState) -> dict[str, Any]:
         tickets = await ticket_svc.list_tickets(
             session,
             tenant_id=tenant.id,
-            user_id=user.id,
+            actor=user,
+            status=None,
+            limit=50,
         )
 
         return {
@@ -231,9 +236,105 @@ async def list_tickets_tool(state: ChatState) -> dict[str, Any]:
         }
 
 
-# ---------------------------------------------------------------------------
-# RAG / knowledge retrieval
-# ---------------------------------------------------------------------------
+async def get_ticket_status_by_reference_tool(
+    state: ChatState,
+    *,
+    reference: str,
+) -> dict[str, Any]:
+    """Single ticket by reference; enforced owner/staff via domain service."""
+    ref = reference.strip()
+    if not ref:
+        return {
+            "success": False,
+            "ticket_outcome": "empty_reference",
+            "error": "empty_reference",
+            "user_message_tr": "Geçerli bir referans kodu gerekli.",
+        }
+
+    async with get_session_factory()() as session:
+        tenant = await _get_tenant(session, state.tenant_slug)
+        if not tenant:
+            return {
+                "success": False,
+                "ticket_outcome": "tenant_not_found",
+                "error": "Hastane bulunamadı.",
+                "user_message_tr": "Hastane bulunamadı.",
+            }
+
+        user = await _get_user(session, state.user_id, tenant.id)
+        if not user:
+            return {
+                "success": False,
+                "ticket_outcome": "user_not_found",
+                "error": "Kullanıcı bulunamadı.",
+                "user_message_tr": "Oturum kullanıcısı bulunamadı; lütfen yeniden giriş yapın.",
+            }
+
+        try:
+            ticket = await ticket_svc.get_ticket_by_reference(
+                session,
+                tenant_id=tenant.id,
+                reference=ref,
+                actor=user,
+            )
+        except DomainError as e:
+            if e.code == "ticket_not_found":
+                user_tr = (
+                    f"{ref} referanslı bir talep bu hastanede bulunamadı. "
+                    "Numarayı kontrol edin veya talepleriniz listesinden doğrulayın."
+                )
+            elif e.code == "forbidden":
+                user_tr = (
+                    "Bu referansa ait talebi yalnızca kaydı oluşturan kullanıcı görüntüleyebilir. "
+                    "Oturumunuzun doğru hesaba ait olduğundan emin olun."
+                )
+            else:
+                user_tr = e.message
+            return {
+                "success": False,
+                "ticket_outcome": e.code,
+                "error": e.message,
+                "user_message_tr": user_tr,
+                "reference": ref,
+            }
+
+        st = ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status)
+        pr = ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority)
+        created = ticket.created_at.isoformat() if ticket.created_at else "—"
+        user_tr = (
+            f"Talep {ticket.reference}: durum {st}, öncelik {pr}. "
+            f"Konu: {ticket.subject}. Oluşturulma: {created}."
+        )
+        return {
+            "success": True,
+            "ticket_outcome": "found",
+            "user_message_tr": user_tr,
+            "reference": ticket.reference,
+            "status": st,
+            "subject": ticket.subject,
+            "category": ticket.category or "",
+            "priority": pr,
+            "created_at": created,
+        }
+
+
+async def get_ticket_by_reference_for_graph(state: ChatState) -> dict[str, Any]:
+    """Resolve TKT-… from ``user_message`` then delegate (complaint graph node)."""
+    from hospitai_agent.ticket_reference import extract_ticket_reference
+
+    ref = extract_ticket_reference(state.user_message)
+    if not ref:
+        return {
+            "success": False,
+            "ticket_outcome": "no_reference_in_message",
+            "error": "no_reference_in_message",
+            "user_message_tr": (
+                "Mesajınızda TKT- ile başlayan geçerli bir referans kodu bulunamadı. "
+                "Durumunu öğrenmek istediğiniz talebin referansını "
+                "(ör. TKT- ile başlayan kod) yazın."
+            ),
+        }
+    return await get_ticket_status_by_reference_tool(state, reference=ref)
 
 
 async def retrieve_knowledge_tool(state: ChatState, query: str) -> dict[str, Any]:
@@ -318,6 +419,7 @@ TOOL_REGISTRY: dict[str, Any] = {
     "list_appointments": list_appointments_tool,
     "create_ticket": create_ticket_tool,
     "list_tickets": list_tickets_tool,
+    "get_ticket_by_reference": get_ticket_by_reference_for_graph,
     "retrieve_knowledge": retrieve_knowledge_tool,
     "hospital_info": hospital_info_tool,
 }
@@ -329,5 +431,6 @@ def make_workflow_tools() -> ChatWorkflowTools:
         list_available_slots=list_available_slots_for_graph,
         list_user_appointments=list_appointments_tool,
         list_tickets=list_tickets_tool,
+        get_ticket_by_reference=get_ticket_by_reference_for_graph,
         retrieve_knowledge=retrieve_knowledge_tool,
     )

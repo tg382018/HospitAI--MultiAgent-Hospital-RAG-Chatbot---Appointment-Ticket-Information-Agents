@@ -16,6 +16,7 @@ from hospitai_agent.llm_client import get_llm
 from hospitai_agent.llm_profile import get_llm_profile, merge_llm_profile
 from hospitai_agent.safety import output_safety_check, safety_check
 from hospitai_agent.state import ChatState
+from hospitai_agent.ticket_reference import extract_ticket_reference
 from hospitai_agent.workflow_tools import ChatWorkflowTools
 
 log = structlog.get_logger(__name__)
@@ -71,6 +72,7 @@ _SYSTEM_PROMPTS: dict[str, str] = {
     "appointment": (
         "Sen HospitAI hastane asistanısın. Kullanıcının randevu taleplerine yardımcı oluyorsun. "
         "Araç çıktılarında müsait saatleri veya mevcut randevuları açıkça özetle. "
+        "Randevu listesi yalnızca oturumdaki kullanıcının kendi kayıtları içindir. "
         "Özellikle user_message_tr alanı varsa, kullanıcıya iletilecek özeti buna dayandır; "
         "boş liste veya dış sistem hatası durumlarını olduğu gibi veya nazikçe kısaltarak aktar. "
         "Dış hastane bağlantılı tenantlarda slot listesi dış sistemden gelmiş olabilir; "
@@ -81,7 +83,9 @@ _SYSTEM_PROMPTS: dict[str, str] = {
     "complaint": (
         "Sen HospitAI hastane asistanısın. Kullanıcının şikayet/talep oluşturma ve takip "
         "işlemlerine yardımcı oluyorsun. Araç çıktısındaki talep listesini özetle; "
-        "boşsa nazikçe belirt. Yeni talep için önce kısa konu ve açıklama iste; "
+        "boşsa nazikçe belirt. TKT- referansı ile tek talep durumu sorulduğunda yalnızca "
+        "araçta dönen bilgiyi kullan; başka kullanıcıya ait talepleri göremezsin. "
+        "Yeni talep için önce kısa konu ve açıklama iste; "
         "kullanıcı netleştirmeden kayıt açma. Empatik ve çözüm odaklı ol."
     ),
     "hospital_info": (
@@ -247,6 +251,17 @@ def _wants_slot_search(text: str) -> bool:
     )
 
 
+def _wants_complaint_ticket_list(text: str) -> bool:
+    return bool(
+        re.search(
+            r"taleplerim|şikayetlerim|tüm\s+talep|ticket\s+list|listele|"
+            r"my\s+tickets|open\s+tickets|açık\s+talep",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
 async def _handle_appointment(state: _GraphState) -> _GraphState:
     cs = _gs_to_cs(state)
     msg = state["user_message"]
@@ -267,8 +282,17 @@ async def _handle_appointment(state: _GraphState) -> _GraphState:
 
 async def _handle_complaint(state: _GraphState) -> _GraphState:
     cs = _gs_to_cs(state)
-    result = await _tools().list_tickets(cs)
-    state["tool_results"].append({"tool": "list_tickets", "result": result})
+    msg = state["user_message"]
+    ref = extract_ticket_reference(msg)
+    wants_list = _wants_complaint_ticket_list(msg)
+
+    if ref:
+        one = await _tools().get_ticket_by_reference(cs)
+        state["tool_results"].append({"tool": "get_ticket_by_reference", "result": one})
+
+    if not ref or wants_list:
+        listed = await _tools().list_tickets(cs)
+        state["tool_results"].append({"tool": "list_tickets", "result": listed})
     return state
 
 
