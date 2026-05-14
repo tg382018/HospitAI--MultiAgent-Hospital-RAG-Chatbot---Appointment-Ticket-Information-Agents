@@ -164,11 +164,40 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "list_doctors",
+            "description": (
+                "Hastanedeki aktif doktorları ve bölümlerini DB'den listele. "
+                "Kullanıcı 'hangi doktorlar var', 'X bölümünde kim var', 'doktor ismi nedir' "
+                "veya belirli bir uzmanlıktan doktor sorduğunda çağır. "
+                "Gerçek DB verisi döner — bu araç RAG'dan önce gelir."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "department_name": {
+                        "type": "string",
+                        "description": "Bölüm adı filtresi (ör. 'Dahiliye', 'Kardiyoloji'). Boş bırakılırsa tüm bölümler.",
+                    },
+                    "doctor_name": {
+                        "type": "string",
+                        "description": "Doktor adı filtresi. Boş bırakılırsa tüm doktorlar.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_hospital_info",
             "description": (
-                "Hastane bilgi tabanında arama yap: bölümler, doktorlar, ziyaret saatleri, "
-                "adres, hizmetler, genel sağlık bilgisi. "
-                "Kullanıcı hastane hakkında bilgi sorduğunda çağır."
+                "Hastane bilgi tabanında (RAG) arama yap. "
+                "YALNIZCA şunlar için kullan: hastane adresi, park, ziyaret saatleri, "
+                "sigorta/ödeme bilgisi, genel sağlık/hastalık soruları, "
+                "DB araçlarının kapsamamadığı politika/prosedür konuları. "
+                "Doktor adları, bölümler ve randevu bilgileri için KULLANMA — bunlar için "
+                "list_doctors veya list_available_slots çağır."
             ),
             "parameters": {
                 "type": "object",
@@ -192,4 +221,4 @@ APPOINTMENT_TOOLS: frozenset[str] = frozenset(
 COMPLAINT_TOOLS: frozenset[str] = frozenset(
     {"create_complaint_ticket", "list_complaint_tickets", "close_complaint_ticket"}
 )
-INFO_TOOLS: frozenset[str] = frozenset({"search_hospital_info"})
+INFO_TOOLS: frozenset[str] = frozenset({"search_hospital_info", "list_doctors"})

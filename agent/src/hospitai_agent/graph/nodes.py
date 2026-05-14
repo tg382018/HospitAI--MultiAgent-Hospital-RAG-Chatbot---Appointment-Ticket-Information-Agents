@@ -219,6 +219,11 @@ async def _dispatch_tool(state: GraphState, name: str, args: dict) -> dict:
     wt = get_workflow_tools()
     cs = graph_state_to_chat_state(state)
 
+    if name == "list_doctors":
+        dept = str(args.get("department_name") or "")
+        doc = str(args.get("doctor_name") or "")
+        return await wt.list_doctors(cs, dept, doc)
+
     if name == "list_available_slots":
         dept = str(args.get("department_name") or "")
         doc = str(args.get("doctor_name") or "")

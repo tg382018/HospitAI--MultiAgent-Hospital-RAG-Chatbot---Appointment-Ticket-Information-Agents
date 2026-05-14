@@ -217,6 +217,81 @@ async def list_available_slots_for_graph(state: ChatState) -> dict[str, Any]:
     )
 
 
+async def list_doctors_tool(
+    state: ChatState,
+    department_name: str = "",
+    doctor_name: str = "",
+) -> dict[str, Any]:
+    """Aktif doktorları DB'den listele — bölüm veya isim filtresiyle."""
+    from sqlalchemy import func as sa_func
+
+    from hospitai.infrastructure.db.models.clinical import Department, Doctor
+
+    async with get_session_factory()() as session:
+        tenant = await _get_tenant(session, state.tenant_slug)
+        if not tenant:
+            return {"success": False, "user_message_tr": "Hastane bulunamadı."}
+
+        from sqlalchemy import select as sa_select
+
+        stmt = (
+            sa_select(Doctor, Department.name.label("dept_name"))
+            .outerjoin(Department, Doctor.department_id == Department.id)
+            .where(Doctor.tenant_id == tenant.id, Doctor.is_active.is_(True))
+        )
+
+        import re as _re
+
+        dn = (doctor_name or "").strip()
+        if dn:
+            dn_bare = _re.sub(r"^[Dd][Rr]\.?\s*", "", dn).strip()
+            from hospitai.application.appointments import _ascii_normalize
+            dn_norm = _ascii_normalize(dn_bare).lower()
+            col_norm = sa_func.lower(
+                sa_func.translate(
+                    sa_func.regexp_replace(Doctor.full_name, r"^Dr\.?\s*", "", "i"),
+                    "şçğıöüŞÇĞİÖÜ", "scgiouSCGIOU",
+                )
+            )
+            stmt = stmt.where(col_norm.ilike(f"%{dn_norm}%"))
+
+        dep_q = (department_name or "").strip()
+        if dep_q:
+            dep_norm = dep_q.lower()
+            dept_col = sa_func.lower(
+                sa_func.translate(Department.name, "şçğıöüŞÇĞİÖÜ", "scgiouSCGIOU")
+            )
+            stmt = stmt.where(dept_col.ilike(f"%{dep_norm}%"))
+
+        stmt = stmt.order_by(Department.name, Doctor.full_name)
+        rows = list((await session.execute(stmt)).all())
+
+        if not rows:
+            msg = "Bu kriterlere uyan aktif doktor bulunamadı."
+            if dep_q:
+                msg = f"'{dep_q}' bölümünde aktif doktor bulunamadı."
+            return {"success": False, "user_message_tr": msg}
+
+        # Group by department
+        by_dept: dict[str, list[str]] = {}
+        for row in rows:
+            dept = row.dept_name or "Genel"
+            by_dept.setdefault(dept, []).append(row.Doctor.full_name)
+
+        lines = []
+        for dept, docs in by_dept.items():
+            lines.append(f"**{dept}**: {', '.join(docs)}")
+
+        return {
+            "success": True,
+            "user_message_tr": "\n".join(lines),
+            "doctors": [
+                {"name": r.Doctor.full_name, "department": r.dept_name or "Genel"}
+                for r in rows
+            ],
+        }
+
+
 async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
     """Randevu listesi: köprü (HTTP/Rabbit) veya yerel DB (JWT / yerel doğrulama)."""
     async with get_session_factory()() as session:
@@ -1313,6 +1388,7 @@ TOOL_REGISTRY: dict[str, Any] = {
 def make_workflow_tools() -> ChatWorkflowTools:
     """Bindings passed to `hospitai_agent.graph.configure_workflow_tools`."""
     return ChatWorkflowTools(
+        list_doctors=list_doctors_tool,
         list_available_slots=list_available_slots_for_graph,
         list_user_appointments=list_appointments_tool,
         list_tickets=list_tickets_tool,
