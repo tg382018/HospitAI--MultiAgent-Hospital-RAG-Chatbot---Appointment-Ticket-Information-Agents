@@ -10,7 +10,11 @@ from sqlalchemy import select
 
 from hospitai.api.deps import SessionDep, require_roles
 from hospitai.api.http_mapping import raise_from_domain
-from hospitai.api.schemas.admin_connector import TenantConnectorPublic, TenantConnectorUpdate
+from hospitai.api.schemas.admin_connector import (
+    TenantConnectorProbeAccepted,
+    TenantConnectorPublic,
+    TenantConnectorUpdate,
+)
 from hospitai.api.schemas.admin_tenant import (
     AdminUserListResponse,
     AdminUserPatch,
@@ -94,6 +98,17 @@ async def patch_tenant_connector(
         external_hospital_base_url=tenant.external_hospital_base_url,
         has_external_hospital_api_key=bool(key),
     )
+
+
+@router.post("/tenant-connector/probe", response_model=TenantConnectorProbeAccepted)
+async def enqueue_external_connector_probe(
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> TenantConnectorProbeAccepted:
+    """Dış HIS /v1/doctors erişimini Celery worker içinde dene (sohbeti bloklamaz)."""
+    from hospitai.workers.tasks import probe_external_hospital_connectivity_task
+
+    async_result = probe_external_hospital_connectivity_task.delay(str(user.tenant_id))
+    return TenantConnectorProbeAccepted(task_id=async_result.id)
 
 
 # ---- Tenant policy (JSONB flags) -------------------------------------------

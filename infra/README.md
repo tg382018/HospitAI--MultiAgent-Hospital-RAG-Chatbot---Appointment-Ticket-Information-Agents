@@ -40,12 +40,12 @@ Docker Compose, `infra/docker-compose.yml` ile aynı klasördeki `infra/.env` do
 
 ## Uç noktalar (host)
 
-| Servis                          | Host adresi                                    |
-| ------------------------------- | ---------------------------------------------- |
-| Postgres                        | `127.0.0.1:5432`                               |
-| Redis                           | `127.0.0.1:6379`                               |
-| Chroma                          | `http://127.0.0.1:8001`                        |
-| **XYZ Hospital (referans HIS)** | `http://127.0.0.1:8010` (`/health`, `/v1/...`) |
+| Servis                          | Host adresi                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| Postgres                        | `127.0.0.1:<POSTGRES_PORT>` (varsayılan `5432`; `docker compose ps` ile doğrula) |
+| Redis                           | `127.0.0.1:6379`                                                                 |
+| Chroma                          | `http://127.0.0.1:8001`                                                          |
+| **XYZ Hospital (referans HIS)** | `http://127.0.0.1:8010` (`/health`, `/v1/...`)                                   |
 
 Chroma konteyner içinde 8000 portunda dinler; FastAPI’nin yerelde 8000 kullanması için host tarafında **8001** eşlemesi kullanılır. **XYZ Hospital** için host **8010** → konteyner 8010 (`XYZ_HOSPITAL_PORT`).
 

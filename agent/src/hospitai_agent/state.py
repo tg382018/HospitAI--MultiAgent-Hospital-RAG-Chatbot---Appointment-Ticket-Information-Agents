@@ -31,3 +31,13 @@ class ChatState:
     sources: list[str] = field(default_factory=list)
 
     llm_overrides: dict[str, Any] = field(default_factory=dict)
+
+    guest_full_name: str = ""
+    guest_phone: str = ""
+    guest_email: str = ""
+
+    web_context: str = ""
+    web_used: bool = False
+    strict_grounding: bool = False
+    regen_count: int = 0
+    verify_should_retry: bool = False

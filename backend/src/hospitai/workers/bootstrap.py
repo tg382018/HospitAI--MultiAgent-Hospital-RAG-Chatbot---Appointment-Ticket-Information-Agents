@@ -5,12 +5,14 @@ from __future__ import annotations
 from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
 from hospitai_agent.rag_profile import RagInfrastructureProfile, configure_rag_profile
 
+from hospitai.infrastructure.agent_tool_env import apply_optional_agent_env
 from hospitai.infrastructure.settings import get_settings
 
 
 def configure_worker_environment() -> None:
     """Mirror API lifespan RAG+LLM wiring so embeddings and Chroma calls work in workers."""
     settings = get_settings()
+    apply_optional_agent_env(settings)
     configure_llm_profile(
         LLMProfile(
             llm_model=settings.llm_model,

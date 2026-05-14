@@ -17,6 +17,7 @@ from hospitai.api.middleware.request_id import RequestIdMiddleware
 from hospitai.api.routers import health
 from hospitai.api.routers.v1 import api_v1
 from hospitai.application.chat.tools import make_workflow_tools
+from hospitai.infrastructure.agent_tool_env import apply_optional_agent_env
 from hospitai.infrastructure.db.session import dispose_engine
 from hospitai.infrastructure.logging import setup_logging
 from hospitai.infrastructure.settings import get_settings
@@ -27,6 +28,7 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings = get_settings()
+    apply_optional_agent_env(settings)
     configure_llm_profile(
         LLMProfile(
             llm_model=settings.llm_model,

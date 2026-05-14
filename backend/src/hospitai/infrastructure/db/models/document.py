@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from hospitai.infrastructure.db.base import Base, TenantScopedMixin, TimestampMixin
@@ -21,7 +22,7 @@ class DocumentStatus(StrEnum):
 class Document(Base, TenantScopedMixin, TimestampMixin):
     """Tracks a single uploaded / ingested document for RAG per tenant."""
 
-    __tablename__ = "rag_documents"
+    __tablename__ = "documents"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -53,21 +54,20 @@ class Document(Base, TenantScopedMixin, TimestampMixin):
     tenant = relationship("Tenant")
 
 
-class DocumentChunk(Base, TenantScopedMixin, TimestampMixin):
+class DocumentChunk(Base, TenantScopedMixin):
     """Individual chunk of a document stored in vector DB; this table is the SQL-side record."""
 
-    __tablename__ = "rag_document_chunks"
+    __tablename__ = "document_chunks"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
     document_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("rag_documents.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("documents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

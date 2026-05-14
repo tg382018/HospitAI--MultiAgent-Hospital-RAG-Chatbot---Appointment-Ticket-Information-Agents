@@ -32,6 +32,10 @@ def _fmt_dt(value: object) -> str:
     return str(value or "")
 
 
+def _guest_contact_ready(state: ChatState) -> bool:
+    return bool((state.guest_full_name or "").strip() and (state.guest_phone or "").strip())
+
+
 # ---------------------------------------------------------------------------
 # Appointment tools
 # ---------------------------------------------------------------------------
@@ -138,7 +142,15 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
 
         user = await _get_user(session, state.user_id, tenant.id)
         if not user:
-            return {"success": False, "error": "Kullanıcı bulunamadı."}
+            return {
+                "success": True,
+                "appointments": [],
+                "count": 0,
+                "user_message_tr": (
+                    "Oturum açmadan hesabınıza bağlı randevu listesi gösterilemez. "
+                    "Müsait saatleri sorabilir veya randevu için bilgi hattını arayabilirsiniz."
+                ),
+            }
 
         appointments = await appt_svc.list_appointments_for_actor(
             session,
@@ -181,18 +193,44 @@ async def create_ticket_tool(
             return {"success": False, "error": "Hastane bulunamadı."}
 
         user = await _get_user(session, state.user_id, tenant.id)
-        if not user:
-            return {"success": False, "error": "Kullanıcı bulunamadı."}
+        desc = description.strip()
+        if user:
+            ticket = await ticket_svc.create_ticket(
+                session,
+                tenant_id=tenant.id,
+                actor=user,
+                subject=subject,
+                description=desc,
+                category=category,
+                priority=TicketPriority.MEDIUM,
+            )
+        elif _guest_contact_ready(state):
+            suffix = (
+                "\n\n--- Misafir iletişim (kayıtlı hesap yok) ---\n"
+                f"Ad Soyad: {(state.guest_full_name or '').strip()}\n"
+                f"Telefon: {(state.guest_phone or '').strip()}\n"
+                f"E-posta: {(state.guest_email or '').strip() or '—'}\n"
+            )
+            ticket = await ticket_svc.create_ticket(
+                session,
+                tenant_id=tenant.id,
+                actor=None,
+                subject=subject,
+                description=(desc + suffix)[:12000],
+                category=category,
+                priority=TicketPriority.MEDIUM,
+            )
+        else:
+            return {
+                "success": False,
+                "user_message_tr": (
+                    "Talebinizi kaydetmek için ad soyad ve telefon numaranızı paylaşın "
+                    "(tercihen e-posta). Bilgileri iletişim alanına yazıp tekrar deneyebilir "
+                    "veya mesajınızda belirtebilirsiniz."
+                ),
+                "error": "guest_contact_required",
+            }
 
-        ticket = await ticket_svc.create_ticket(
-            session,
-            tenant_id=tenant.id,
-            actor=user,
-            subject=subject,
-            description=description,
-            category=category,
-            priority=TicketPriority.MEDIUM,
-        )
         await session.commit()
 
         return {
@@ -211,7 +249,15 @@ async def list_tickets_tool(state: ChatState) -> dict[str, Any]:
 
         user = await _get_user(session, state.user_id, tenant.id)
         if not user:
-            return {"success": False, "error": "Kullanıcı bulunamadı."}
+            return {
+                "success": True,
+                "tickets": [],
+                "count": 0,
+                "user_message_tr": (
+                    "Oturum açmadan talep listesi gösterilemez. Yeni talep için ad ve telefon "
+                    "verin veya oluşturduğunuz TKT- referansı ile durum sorgulayın."
+                ),
+            }
 
         tickets = await ticket_svc.list_tickets(
             session,
@@ -262,20 +308,14 @@ async def get_ticket_status_by_reference_tool(
             }
 
         user = await _get_user(session, state.user_id, tenant.id)
-        if not user:
-            return {
-                "success": False,
-                "ticket_outcome": "user_not_found",
-                "error": "Kullanıcı bulunamadı.",
-                "user_message_tr": "Oturum kullanıcısı bulunamadı; lütfen yeniden giriş yapın.",
-            }
+        actor = user if user is not None else None
 
         try:
             ticket = await ticket_svc.get_ticket_by_reference(
                 session,
                 tenant_id=tenant.id,
                 reference=ref,
-                actor=user,
+                actor=actor,
             )
         except DomainError as e:
             if e.code == "ticket_not_found":
@@ -337,13 +377,54 @@ async def get_ticket_by_reference_for_graph(state: ChatState) -> dict[str, Any]:
     return await get_ticket_status_by_reference_tool(state, reference=ref)
 
 
+def _parse_complaint_for_ticket(message: str) -> tuple[str, str]:
+    """Derive ticket subject + description from free-form user text."""
+    text = message.strip()
+    lowered = text.lower()
+    for ph in (
+        "şikayet oluşturmak istiyorum",
+        "talep oluşturmak istiyorum",
+        "yeni talep oluşturmak istiyorum",
+        "şikayet kaydı açmak istiyorum",
+        "başvuru yapmak istiyorum",
+    ):
+        if ph in lowered:
+            i = lowered.index(ph)
+            text = (text[:i] + text[i + len(ph) :]).strip(" :.,;\n\t-")
+            lowered = text.lower()
+            break
+    if ":" in text:
+        left, right = text.split(":", 1)
+        subject = left.strip()[:200] or "Hasta talebi"
+        description = right.strip() or text
+        return subject, description[:8000]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) >= 2:
+        return lines[0][:200], "\n".join(lines[1:])[:8000]
+    if len(text) > 160:
+        cut = text[:140].rfind(" ")
+        head = text[: cut if cut > 40 else 120]
+        return (head + "…", text[:8000])
+    return "Hasta talebi", text[:8000]
+
+
+async def create_ticket_from_message_for_graph(state: ChatState, message: str) -> dict[str, Any]:
+    subject, description = _parse_complaint_for_ticket(message)
+    return await create_ticket_tool(
+        state,
+        subject=subject,
+        description=description,
+        category="general",
+    )
+
+
 async def retrieve_knowledge_tool(state: ChatState, query: str) -> dict[str, Any]:
     """Retrieve relevant context from tenant's knowledge base."""
     try:
         chunks = await rag_svc.retrieve_context(
             state.tenant_slug,
             query=query,
-            n_results=5,
+            n_results=10,
         )
 
         sources = list(
@@ -354,9 +435,12 @@ async def retrieve_knowledge_tool(state: ChatState, query: str) -> dict[str, Any
             }
         )
 
+        texts = [c.get("content") or "" for c in chunks]
+        merged = "\n\n".join(t for t in texts if t.strip())
+
         return {
             "success": True,
-            "context": "\n\n".join(c.get("content", "") for c in chunks),
+            "context": merged,
             "sources": sources,
         }
     except Exception as exc:
@@ -433,4 +517,5 @@ def make_workflow_tools() -> ChatWorkflowTools:
         list_tickets=list_tickets_tool,
         get_ticket_by_reference=get_ticket_by_reference_for_graph,
         retrieve_knowledge=retrieve_knowledge_tool,
+        create_ticket_from_message=create_ticket_from_message_for_graph,
     )

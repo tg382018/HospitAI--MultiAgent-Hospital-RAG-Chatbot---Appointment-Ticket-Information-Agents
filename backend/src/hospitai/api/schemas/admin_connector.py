@@ -12,6 +12,12 @@ class TenantConnectorPublic(BaseModel):
     has_external_hospital_api_key: bool
 
 
+class TenantConnectorProbeAccepted(BaseModel):
+    """Celery kuyruğuna alındı; sonuç için task_id ile worker çıktısına bakın."""
+
+    task_id: str = Field(..., description="Celery async result id")
+
+
 class TenantConnectorUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

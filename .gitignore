@@ -25,10 +25,10 @@ build/
 coverage.xml
 htmlcov/
 
-# Environment
+# Environment (do not commit real secrets; *.env.example templates are tracked)
 .env
-.env.*
-.env.example
+.env.local
+.env.*.local
 
 # IDE / OS
 .idea/

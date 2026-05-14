@@ -4,7 +4,7 @@ Bu dizin **ayrı bir Python paketidir** (`pyproject.toml` → dağıtım adı `h
 
 ## İçerik
 
-- **LangGraph** (`graph.py`): intent, güvenlik, yanıt üretimi.
+- **LangGraph** (`graph/` paketi): intent, güvenlik, yanıt üretimi — ayrıntı için `docs/AGENT.md`.
 - **LLM** (`llm_profile.py`, `llm_client.py`, `intent.py`, `safety.py`): `configure_llm_profile(...)` lifespan’da.
 - **RAG / vektör** (`rag_profile.py`, `chunking.py`, `embeddings.py`, `vector_db.py`): `configure_rag_profile(...)` lifespan’da (Chroma, OpenAI embedding, tiktoken chunk boyutları).
 - **Tool sözleşmesi** (`workflow_tools.py`): `ChatWorkflowTools` — platform `application/chat/tools.py` + `configure_workflow_tools(make_workflow_tools())`.

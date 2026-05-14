@@ -43,7 +43,8 @@ _KEYWORD_MAP: list[tuple[str, re.Pattern[str]]] = [
     (
         "hospital_info",
         re.compile(
-            r"\b(bölüm|klinik|poliklinik|ziyaret\s+saat|adres|nerede|ulaşım|"
+            r"\b(bölümler|bölüm|klinik|poliklinik|hastane\s+hakk|ziyaret\s+saat|"
+            r"adres|nerede|ulaşım|doktorlar|doktor\s+list|hangi\s+hizmet|"
             r"department|visiting\s+hours|directions|location|address)\b",
             re.IGNORECASE,
         ),

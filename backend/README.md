@@ -12,7 +12,8 @@ Python / FastAPI servisi. Katmanlar:
 - **Giriş**: `hospitai.api.main:app` (`create_app()` fabrika).
 - **Yol örnekleri**: `GET /healthz`, `GET /readyz`, `GET /api/v1/ping`, `POST /api/v1/auth/login`, `GET /api/v1/users/me`, `GET /api/v1/appointments/available-slots`, `POST /api/v1/tickets`, …
 - **OpenAPI**: `ENVIRONMENT!=production` iken `/docs`, `/redoc`, `/openapi.json`.
-- **Ortam**: `backend/.env` (kök `backend/` klasörüne göre mutlak yol ile okunur; monorepo kökünden çalıştırsan da bulunur).
+- **Ortam**: `backend/.env` (kök `backend/` klasörüne göre mutlak yol ile okunur; monorepo kökünden çalıştırsan da bulunur). Şablon: `backend/.env.example`.
+- **LLM / embedding**: `OPENAI_API_KEY` tek satır yeterli (boş olan `LLM_API_KEY` ve `EMBEDDING_API_KEY` buna doldurulur) veya anahtarları ayrı ayrı tanımlayın. Anahtarlar yalnızca backend ortamında; frontend’e koymayın. İsteğe bağlı: `LANGCHAIN_API_KEY`, `LANGCHAIN_TRACING_V2`, `LANGCHAIN_PROJECT` (LangSmith), `TAVILY_API_KEY` — uygulama açılışında `os.environ`’a yazılır (LangChain / ileride Tavily araçları için).
 - **Log**: `structlog` — geliştirmede renkli konsol, diğer ortamlarda JSON.
 - **Hata gövdesi**: `{"error": {"code", "message", "request_id"}}` + `X-Request-ID` middleware.
 

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[3]
@@ -16,7 +17,32 @@ class Settings(BaseSettings):
         env_file=_BACKEND_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_openai_unified_key(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        merged = dict(data)
+
+        def pick_str(*keys: str) -> str:
+            for k in keys:
+                v = merged.get(k)
+                if v is not None and str(v).strip():
+                    return str(v).strip()
+            return ""
+
+        fb = pick_str("openai_api_key", "OPENAI_API_KEY")
+        if not fb:
+            return merged
+
+        if not pick_str("llm_api_key", "LLM_API_KEY"):
+            merged["llm_api_key"] = fb
+        if not pick_str("embedding_api_key", "EMBEDDING_API_KEY"):
+            merged["embedding_api_key"] = fb
+        return merged
 
     database_url: str = Field(
         default="postgresql+asyncpg://hospitai:hospitai_dev_password@127.0.0.1:5432/hospitai",
@@ -48,6 +74,38 @@ class Settings(BaseSettings):
         validation_alias="ALLOW_OPEN_REGISTRATION",
         description="If false, only existing admins can create users (future).",
     )
+    public_chat_default_tenant_slug: str = Field(
+        default="demo-hospital",
+        validation_alias="PUBLIC_CHAT_DEFAULT_TENANT_SLUG",
+        description="Tenant slug when chat is used without JWT and X-Tenant-Slug is omitted.",
+    )
+
+    openai_api_key: str = Field(
+        default="",
+        validation_alias="OPENAI_API_KEY",
+        description="Single key used to fill empty LLM_API_KEY and/or EMBEDDING_API_KEY.",
+    )
+
+    langchain_api_key: str = Field(
+        default="",
+        validation_alias="LANGCHAIN_API_KEY",
+        description="LangSmith / LangChain observability (exported to os.environ at startup).",
+    )
+    langchain_tracing_v2: bool = Field(
+        default=False,
+        validation_alias="LANGCHAIN_TRACING_V2",
+        description="When true, sets LANGCHAIN_TRACING_V2=true for LangSmith tracing.",
+    )
+    langchain_project: str = Field(
+        default="",
+        validation_alias="LANGCHAIN_PROJECT",
+        description="Optional LangSmith project name.",
+    )
+    tavily_api_key: str = Field(
+        default="",
+        validation_alias="TAVILY_API_KEY",
+        description="Tavily web search API key (exported to os.environ; use when tools need it).",
+    )
 
     # ---- RAG / Vector DB ----
     chroma_host: str = Field(
@@ -71,7 +129,7 @@ class Settings(BaseSettings):
     embedding_api_key: str = Field(
         default="",
         validation_alias="EMBEDDING_API_KEY",
-        description="OpenAI API key for embeddings (falls back to OPENAI_API_KEY env).",
+        description="OpenAI API key for embeddings; optional if OPENAI_API_KEY is set.",
     )
     embedding_dimensions: int = Field(
         default=1536,
@@ -80,14 +138,14 @@ class Settings(BaseSettings):
 
     # ---- LLM ----
     llm_model: str = Field(
-        default="gpt-4o-mini",
+        default="gpt-4o",
         validation_alias="LLM_MODEL",
         description="Default LLM model for the chat workflow.",
     )
     llm_api_key: str = Field(
         default="",
         validation_alias="LLM_API_KEY",
-        description="OpenAI API key for LLM calls (falls back to OPENAI_API_KEY env).",
+        description="OpenAI API key for LLM calls; optional if OPENAI_API_KEY is set.",
     )
     llm_base_url: str | None = Field(
         default=None,
@@ -95,7 +153,7 @@ class Settings(BaseSettings):
         description="Optional OpenAI-compatible base URL for LLM calls.",
     )
     llm_temperature: float = Field(
-        default=0.0,
+        default=0.25,
         validation_alias="LLM_TEMPERATURE",
         description="Temperature for LLM responses.",
     )

@@ -22,6 +22,21 @@ class ChatRequest(BaseModel):
         None,
         description="Existing conversation ID (omit to start new).",
     )
+    guest_full_name: str | None = Field(
+        None,
+        max_length=255,
+        description="Misafir iletişim: ad soyad (talep/randevu için).",
+    )
+    guest_phone: str | None = Field(
+        None,
+        max_length=64,
+        description="Misafir iletişim: telefon.",
+    )
+    guest_email: str | None = Field(
+        None,
+        max_length=320,
+        description="Misafir iletişim: e-posta (isteğe bağlı).",
+    )
 
 
 class ChatResponse(BaseModel):

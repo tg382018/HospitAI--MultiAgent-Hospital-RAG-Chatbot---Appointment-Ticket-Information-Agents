@@ -13,6 +13,7 @@ ListUserAppointmentsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 ListTicketsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 GetTicketByReferenceFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 RetrieveFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
+CreateTicketFromMessageFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,3 +25,4 @@ class ChatWorkflowTools:
     list_tickets: ListTicketsFn
     get_ticket_by_reference: GetTicketByReferenceFn
     retrieve_knowledge: RetrieveFn
+    create_ticket_from_message: CreateTicketFromMessageFn
