@@ -37,8 +37,7 @@ infra/.env
 .DS_Store
 
 # Build outputs
-apps/web/dist/
-apps/admin/dist/
+frontend/dist/
 *.log
 
 # Misc

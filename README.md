@@ -1,15 +1,14 @@
 # HospitAI
 
-Hospital AI Agent Platform — monorepo (`apps/web`, `apps/admin`, `backend`, **`agent/`** (LangGraph paketi), `infra`). Yol haritası: [PLAN.md](PLAN.md).
+Hospital AI Agent Platform — monorepo (`frontend/`, `hospital/admin`, `backend`, **`agent/`** (LangGraph paketi), `infra`). Yol haritası: [PLAN.md](PLAN.md).
 
 ```
 HospitAI/
-├── apps/
-│   ├── web/        # Hasta chat arayüzü (React + Vite)
+├── frontend/       # Hasta chat arayüzü (React + Vite)
+├── hospital/
 │   └── admin/      # Yönetici paneli (React + Vite)
 ├── agent/          # LangGraph AI agent paketi
 ├── backend/        # FastAPI + SQLAlchemy + Celery
-├── integrations/   # Harici hastane bağlantıları (xyz-hospital referans impl.)
 ├── infra/          # Docker Compose (Postgres, Redis, Chroma)
 └── docs/
 ```
@@ -34,25 +33,25 @@ cd backend && python -m venv .venv && source .venv/bin/activate
 pip install -e ../agent
 pip install -e ".[dev]"
 cp backend/.env.example backend/.env
-cp apps/web/.env.example apps/web/.env.local
-cp apps/admin/.env.example apps/admin/.env.local
+cp frontend/.env.example frontend/.env.local
+cp hospital/admin/.env.example hospital/admin/.env.local
 ```
 
 `hospitai-agent`, LangGraph paketidir; backend ona çalışma zamanında bağlıdır.
 
 ## Komutlar
 
-| Komut                 | Açıklama                                             |
-| --------------------- | ---------------------------------------------------- |
-| `npm run docker:up`   | Postgres + Redis + Chroma (+ **xyz-hospital** imajı) |
-| `npm run docker:down` | Compose stack'i durdurur                             |
-| `npm run docker:ps`   | Servis durumu                                        |
-| `npm run docker:logs` | Tüm servislerin logları (follow)                     |
-| `npm run format`      | Prettier (JS/TS/CSS/JSON/YAML/MD)                    |
-| `npm run lint`        | ESLint (web + admin)                                 |
-| `npm run dev`         | Hasta chat geliştirme sunucusu (apps/web)            |
-| `npm run dev:admin`   | Yönetici paneli geliştirme sunucusu (apps/admin)     |
-| `npm run build`       | Her iki uygulamayı derler                            |
+| Komut                 | Açıklama                                               |
+| --------------------- | ------------------------------------------------------ |
+| `npm run docker:up`   | Postgres + Redis + Chroma (+ **xyz-hospital** imajı)   |
+| `npm run docker:down` | Compose stack'i durdurur                               |
+| `npm run docker:ps`   | Servis durumu                                          |
+| `npm run docker:logs` | Tüm servislerin logları (follow)                       |
+| `npm run format`      | Prettier (JS/TS/CSS/JSON/YAML/MD)                      |
+| `npm run lint`        | ESLint (frontend + hospital/admin)                     |
+| `npm run dev`         | Hasta chat geliştirme sunucusu (`frontend/`)           |
+| `npm run dev:admin`   | Yönetici paneli geliştirme sunucusu (`hospital/admin`) |
+| `npm run build`       | Her iki uygulamayı derler                              |
 
 Backend migrasyonları: `cd backend && alembic upgrade head` (önce `npm run docker:up` ve `backend/.env`). Bu işlem **`demo-hospital`** tenant'ını oluşturur; frontend varsayılan olarak bunu kullanır.
 

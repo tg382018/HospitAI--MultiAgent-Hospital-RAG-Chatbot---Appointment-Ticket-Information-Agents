@@ -29,31 +29,25 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm run build
+      - run: npm run build -w frontend
 
   admin:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/admin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: apps/admin/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm run build
-      - run: npm run typecheck
+      - run: npm run build -w hospital/admin
+      - run: npm run typecheck -w hospital/admin
