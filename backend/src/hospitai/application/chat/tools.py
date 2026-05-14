@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
+
+_TZ_TURKEY = timezone(timedelta(hours=3))
 from typing import Any
 
 import httpx
@@ -31,7 +33,10 @@ log = structlog.get_logger(__name__)
 
 
 def _fmt_dt(value: object) -> str:
+    """Format a datetime for the LLM – always in Turkey local time (+03:00)."""
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(_TZ_TURKEY).isoformat()
         return value.isoformat()
     return str(value or "")
 

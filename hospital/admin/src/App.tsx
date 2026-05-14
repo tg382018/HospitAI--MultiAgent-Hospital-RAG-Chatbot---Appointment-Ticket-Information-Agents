@@ -70,7 +70,25 @@ type TicketRow = {
   created_at: string;
 };
 
-type TabId = 'dashboard' | 'appointments' | 'tickets' | 'llm' | 'rag' | 'settings';
+type DoctorRow = {
+  id: string;
+  full_name: string;
+  title: string | null;
+  specialty: string | null;
+  is_active: boolean;
+  department_id: string | null;
+  department_name: string | null;
+};
+type DaySlotRow = {
+  starts_at: string;
+  ends_at: string;
+  time_start: string;
+  label: string;
+  state: 'free' | 'blocked' | 'booked';
+  block_id: string | null;
+};
+
+type TabId = 'dashboard' | 'appointments' | 'tickets' | 'doctors' | 'llm' | 'rag' | 'settings';
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const STATUS_COLORS: Record<string, string> = {
@@ -255,6 +273,22 @@ export default function App() {
   const [adminUsersErr, setAdminUsersErr] = useState<string | null>(null);
   const [userAdminMsg, setUserAdminMsg] = useState<string | null>(null);
 
+  // Doctors
+  const [doctors, setDoctors] = useState<DoctorRow[]>([]);
+  const [doctorsErr, setDoctorsErr] = useState<string | null>(null);
+  const [doctorsLoading, setDoctorsLoading] = useState(false);
+  const [doctorFormOpen, setDoctorFormOpen] = useState(false);
+  const [doctorEdit, setDoctorEdit] = useState<DoctorRow | null>(null);
+  const [doctorFormName, setDoctorFormName] = useState('');
+  const [doctorFormTitle, setDoctorFormTitle] = useState('');
+  const [doctorFormDeptName, setDoctorFormDeptName] = useState('');
+  const [doctorFormMsg, setDoctorFormMsg] = useState<string | null>(null);
+  // Day slot grid (admin)
+  const [blockedSlotDoctor, setBlockedSlotDoctor] = useState<DoctorRow | null>(null);
+  const [blockedSlotDay, setBlockedSlotDay] = useState('');
+  const [daySlots, setDaySlots] = useState<DaySlotRow[]>([]);
+  const [daySlotsErr, setDaySlotsErr] = useState<string | null>(null);
+
   // Hospital name (from backend)
   const [hospitalName, setHospitalName] = useState('Hospital');
   const [hospitalNameInput, setHospitalNameInput] = useState('');
@@ -305,6 +339,39 @@ export default function App() {
       setTicketsLoading(false);
     }
   }, [token]);
+
+  const loadDoctors = useCallback(async () => {
+    if (!token) return;
+    setDoctorsLoading(true);
+    setDoctorsErr(null);
+    try {
+      const docs = await apiFetch<DoctorRow[]>('/api/v1/admin/doctors', {
+        headers: authHeaders(token),
+      });
+      setDoctors(docs);
+    } catch (e) {
+      setDoctorsErr(formatApiError(e));
+    } finally {
+      setDoctorsLoading(false);
+    }
+  }, [token]);
+
+  const loadDaySlots = useCallback(
+    async (doctorId: string, day: string) => {
+      if (!token) return;
+      setDaySlotsErr(null);
+      try {
+        const rows = await apiFetch<DaySlotRow[]>(
+          `/api/v1/admin/doctors/${doctorId}/day-slots?day=${day}`,
+          { headers: authHeaders(token) }
+        );
+        setDaySlots(rows);
+      } catch (e) {
+        setDaySlotsErr(formatApiError(e));
+      }
+    },
+    [token]
+  );
 
   const loadDocs = useCallback(async () => {
     if (!token) return;
@@ -390,6 +457,7 @@ export default function App() {
     void loadTickets();
     void loadDocs();
     void loadHospitalName();
+    void loadDoctors();
     if (canManageConnector(role)) void loadConnector();
     if (canTenantAdmin(role)) {
       void loadAdminUsers();
@@ -407,6 +475,7 @@ export default function App() {
     loadTenantPolicy,
     loadTenantAgentLlm,
     loadHospitalName,
+    loadDoctors,
   ]);
 
   // Auto-logout when any API call returns 401
@@ -417,6 +486,104 @@ export default function App() {
     window.addEventListener('auth:logout', handleAuthExpiry);
     return () => window.removeEventListener('auth:logout', handleAuthExpiry);
   }, [clear]);
+
+  /* ── Doctor actions ─────────────────────────────────────────────────────── */
+  function openNewDoctorForm() {
+    setDoctorEdit(null);
+    setDoctorFormName('');
+    setDoctorFormTitle('');
+    setDoctorFormDeptName('');
+    setDoctorFormMsg(null);
+    setDoctorFormOpen(true);
+  }
+
+  function openEditDoctorForm(doc: DoctorRow) {
+    setDoctorEdit(doc);
+    setDoctorFormName(doc.full_name);
+    setDoctorFormTitle(doc.title ?? '');
+    setDoctorFormDeptName(doc.department_name ?? '');
+    setDoctorFormMsg(null);
+    setDoctorFormOpen(true);
+  }
+
+  async function onSaveDoctor(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setDoctorFormMsg(null);
+    const dept = doctorFormDeptName.trim();
+    try {
+      if (doctorEdit) {
+        await apiFetch(`/api/v1/admin/doctors/${doctorEdit.id}`, {
+          method: 'PATCH',
+          headers: authHeaders(token),
+          body: JSON.stringify({
+            full_name: doctorFormName,
+            title: doctorFormTitle || null,
+            department_name: dept || null,
+          }),
+        });
+      } else {
+        await apiFetch('/api/v1/admin/doctors', {
+          method: 'POST',
+          headers: authHeaders(token),
+          body: JSON.stringify({
+            full_name: doctorFormName,
+            title: doctorFormTitle || null,
+            department_name: dept || null,
+          }),
+        });
+      }
+      setDoctorFormOpen(false);
+      await loadDoctors();
+    } catch (e) {
+      setDoctorFormMsg(formatApiError(e));
+    }
+  }
+
+  async function onToggleDoctorActive(doc: DoctorRow) {
+    if (!token) return;
+    try {
+      await apiFetch(`/api/v1/admin/doctors/${doc.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        body: JSON.stringify({ is_active: !doc.is_active }),
+      });
+      await loadDoctors();
+    } catch (e) {
+      setDoctorsErr(formatApiError(e));
+    }
+  }
+
+  async function onOpenBlockedSlots(doc: DoctorRow) {
+    const today = new Date().toISOString().split('T')[0];
+    setBlockedSlotDoctor(doc);
+    setBlockedSlotDay(today);
+    setDaySlotsErr(null);
+    await loadDaySlots(doc.id, today);
+  }
+
+  async function onDaySlotCellClick(sl: DaySlotRow) {
+    if (!token || !blockedSlotDoctor) return;
+    if (sl.state === 'booked') return;
+    setDaySlotsErr(null);
+    try {
+      if (sl.state === 'free') {
+        await apiFetch(`/api/v1/admin/doctors/${blockedSlotDoctor.id}/blocked-slots`, {
+          method: 'POST',
+          headers: authHeaders(token),
+          body: JSON.stringify({ date: blockedSlotDay, time: sl.time_start }),
+        });
+      } else if (sl.state === 'blocked' && sl.block_id) {
+        await apiFetch(
+          `/api/v1/admin/doctors/${blockedSlotDoctor.id}/blocked-slots/${sl.block_id}`,
+          { method: 'DELETE', headers: authHeaders(token) }
+        );
+      }
+      await loadDaySlots(blockedSlotDoctor.id, blockedSlotDay);
+    } catch (e) {
+      setDaySlotsErr(formatApiError(e));
+    }
+  }
 
   /* ── Actions ────────────────────────────────────────────────────────────── */
   async function onCancelAppointment(id: string) {
@@ -690,6 +857,26 @@ export default function App() {
       ),
     },
     {
+      id: 'doctors',
+      label: 'Doktorlar',
+      badge: doctors.filter((d) => d.is_active).length || undefined,
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      ),
+    },
+    {
       id: 'llm',
       label: 'LLM Ayarları',
       icon: (
@@ -753,6 +940,7 @@ export default function App() {
     dashboard: 'Dashboard',
     appointments: 'Randevular',
     tickets: 'Şikayet / Talepler',
+    doctors: 'Doktorlar',
     llm: 'LLM Ayarları',
     rag: 'RAG / Dokümanlar',
     settings: 'Ayarlar',
@@ -1120,9 +1308,9 @@ export default function App() {
                         <td className="py-3 pr-4 font-mono text-xs text-slate-600">
                           {t.reference}
                         </td>
-                        <td className="py-3 pr-4">
+                        <td className="py-3 pr-4 max-w-sm">
                           <p className="font-medium text-slate-800">{t.subject}</p>
-                          <p className="text-xs text-slate-400 truncate max-w-xs">
+                          <p className="text-xs text-slate-400 whitespace-pre-wrap break-words">
                             {t.description}
                           </p>
                         </td>
@@ -1162,6 +1350,246 @@ export default function App() {
                 </table>
               </div>
             </SectionCard>
+          )}
+
+          {/* ══ DOCTORS ═══════════════════════════════════════════════════════ */}
+          {activeTab === 'doctors' && (
+            <div className="space-y-6">
+              {/* Doctor form modal */}
+              {doctorFormOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                  <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+                    <h3 className="mb-4 text-base font-semibold text-slate-800">
+                      {doctorEdit ? 'Doktoru Düzenle' : 'Yeni Doktor'}
+                    </h3>
+                    <form onSubmit={(e) => void onSaveDoctor(e)} className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Ad Soyad *
+                        </label>
+                        <input
+                          required
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          value={doctorFormName}
+                          onChange={(e) => setDoctorFormName(e.target.value)}
+                          placeholder="Dr. Ad Soyad"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Unvan
+                        </label>
+                        <input
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          value={doctorFormTitle}
+                          onChange={(e) => setDoctorFormTitle(e.target.value)}
+                          placeholder="Uzm. Dr."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          Bölüm
+                        </label>
+                        <input
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                          value={doctorFormDeptName}
+                          onChange={(e) => setDoctorFormDeptName(e.target.value)}
+                          placeholder="Örn. Dahiliye"
+                        />
+                      </div>
+                      {doctorFormMsg && <p className="text-sm text-red-600">{doctorFormMsg}</p>}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setDoctorFormOpen(false)}
+                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          İptal
+                        </button>
+                        <button
+                          type="submit"
+                          className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-5 py-2 text-sm font-semibold text-white hover:opacity-90"
+                        >
+                          Kaydet
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Blocked slots panel */}
+              {blockedSlotDoctor && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                  <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+                    <h3 className="mb-1 text-base font-semibold text-slate-800">
+                      Randevu slotları — {blockedSlotDoctor.full_name}
+                    </h3>
+                    <p className="mb-3 text-xs text-slate-500">
+                      Beyaz: müsait (tıklayınca kapanır). Kırmızı: yönetim tarafından kapatılmış
+                      (tıklayınca açılır). Gri: hasta randevusu — değiştirilemez.
+                    </p>
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <label className="text-xs font-medium text-slate-600">Tarih</label>
+                      <input
+                        type="date"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none"
+                        value={blockedSlotDay}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setBlockedSlotDay(v);
+                          if (v) void loadDaySlots(blockedSlotDoctor.id, v);
+                        }}
+                      />
+                    </div>
+                    {daySlotsErr && <p className="mb-3 text-sm text-red-600">{daySlotsErr}</p>}
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase">
+                            <th className="px-3 py-2">Saat</th>
+                            <th className="px-3 py-2">Durum</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {daySlots.map((sl) => {
+                            const bg =
+                              sl.state === 'blocked'
+                                ? 'bg-red-100 border-red-200'
+                                : sl.state === 'booked'
+                                  ? 'bg-slate-200 border-slate-300 cursor-not-allowed'
+                                  : 'bg-white border-slate-200 hover:bg-sky-50 cursor-pointer';
+                            return (
+                              <tr key={sl.label} className="border-b border-slate-100">
+                                <td className="px-3 py-2 font-medium text-slate-800 whitespace-nowrap">
+                                  {sl.label}
+                                </td>
+                                <td className="p-2">
+                                  <button
+                                    type="button"
+                                    disabled={sl.state === 'booked'}
+                                    onClick={() => void onDaySlotCellClick(sl)}
+                                    className={`w-full min-h-[40px] rounded-lg border text-left px-3 py-2 transition-colors ${bg} ${
+                                      sl.state === 'booked' ? 'text-slate-600' : 'text-slate-800'
+                                    }`}
+                                  >
+                                    {sl.state === 'free' && 'Müsait — kapatmak için tıklayın'}
+                                    {sl.state === 'blocked' && 'Kapalı — açmak için tıklayın'}
+                                    {sl.state === 'booked' && 'Randevu dolu'}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        onClick={() => setBlockedSlotDoctor(null)}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Kapat
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <SectionCard
+                title={`Doktorlar (${doctors.length})`}
+                action={
+                  <div className="flex gap-2">
+                    <button
+                      onClick={openNewDoctorForm}
+                      className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+                    >
+                      + Yeni Doktor
+                    </button>
+                    <button
+                      onClick={() => void loadDoctors()}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                    >
+                      ↺ Yenile
+                    </button>
+                  </div>
+                }
+              >
+                {doctorsLoading && (
+                  <p className="py-4 text-center text-sm text-slate-400">Yükleniyor…</p>
+                )}
+                {doctorsErr && <p className="text-sm text-red-600 mb-3">{doctorsErr}</p>}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        <th className="py-2 pr-4">Ad Soyad</th>
+                        <th className="py-2 pr-4">Bölüm</th>
+                        <th className="py-2 pr-4">Durum</th>
+                        <th className="py-2">İşlem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {doctors.map((doc) => (
+                        <tr key={doc.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-3 pr-4">
+                            <p className="font-medium text-slate-800">{doc.full_name}</p>
+                            {doc.title && <p className="text-xs text-slate-400">{doc.title}</p>}
+                          </td>
+                          <td className="py-3 pr-4 text-slate-600">
+                            {doc.department_name ?? <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span
+                              className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                doc.is_active
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {doc.is_active ? 'Aktif' : 'Pasif'}
+                            </span>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => openEditDoctorForm(doc)}
+                                className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                              >
+                                Düzenle
+                              </button>
+                              <button
+                                onClick={() => void onOpenBlockedSlots(doc)}
+                                className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                              >
+                                Slotlar
+                              </button>
+                              <button
+                                onClick={() => void onToggleDoctorActive(doc)}
+                                className={`rounded border px-2 py-1 text-xs ${
+                                  doc.is_active
+                                    ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                                    : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'
+                                }`}
+                              >
+                                {doc.is_active ? 'Pasifleştir' : 'Aktifleştir'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {doctors.length === 0 && !doctorsLoading && (
+                        <tr>
+                          <td colSpan={4} className="py-8 text-center text-sm text-slate-400">
+                            Henüz doktor eklenmemiş.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </SectionCard>
+            </div>
           )}
 
           {/* ══ LLM SETTINGS ══════════════════════════════════════════════════ */}
@@ -1422,26 +1850,13 @@ export default function App() {
                         <div>
                           <p className="font-medium text-slate-900">{u.email}</p>
                           <p className="text-xs text-slate-500">
-                            {u.full_name ?? '—'} · {u.is_active ? 'aktif' : 'pasif'}
+                            {u.full_name ?? '—'} ·{' '}
+                            <span className="font-medium text-sky-700">admin</span>
+                            {' · '}
+                            {u.is_active ? 'aktif' : 'pasif'}
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          <select
-                            className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                            value={u.role}
-                            disabled={u.id === me.id}
-                            onChange={(e) =>
-                              void onPatchUser(u.id, { role: e.target.value as UserRole })
-                            }
-                          >
-                            {(['admin', 'staff', 'doctor', 'patient', 'operator'] as const).map(
-                              (r) => (
-                                <option key={r} value={r}>
-                                  {r}
-                                </option>
-                              )
-                            )}
-                          </select>
                           <button
                             disabled={u.id === me.id}
                             className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40"
@@ -1453,75 +1868,6 @@ export default function App() {
                       </li>
                     ))}
                   </ul>
-                </SectionCard>
-              )}
-
-              {canManageConnector(role) && (
-                <SectionCard title="Dış Hastane Bağlantısı">
-                  <p className="mb-4 text-sm text-slate-500">
-                    Harici randevu API adresi ve API anahtarı. Anahtar düz metin olarak saklanmaz.
-                  </p>
-                  {connector && (
-                    <p className="mb-3 text-sm text-slate-700">
-                      Kayıtlı anahtar:{' '}
-                      <strong>{connector.has_external_hospital_api_key ? 'Mevcut' : 'Yok'}</strong>
-                    </p>
-                  )}
-                  <form onSubmit={(e) => void onSaveConnector(e)} className="max-w-lg space-y-3">
-                    <label className="block text-sm font-medium text-slate-700">
-                      Base URL
-                      <input
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900"
-                        value={connBase}
-                        onChange={(e) => setConnBase(e.target.value)}
-                        placeholder="https://hospital-api.example.com"
-                      />
-                    </label>
-                    <label className="block text-sm font-medium text-slate-700">
-                      API Anahtarı (yalnızca değiştirmek için)
-                      <input
-                        type="password"
-                        autoComplete="off"
-                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900"
-                        value={connKey}
-                        onChange={(e) => setConnKey(e.target.value)}
-                      />
-                    </label>
-                    {connMsg && <p className="text-sm text-green-700">{connMsg}</p>}
-                    <div className="flex gap-2">
-                      <button
-                        type="submit"
-                        className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-                      >
-                        Kaydet
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void (async () => {
-                            if (!token || !canManageConnector(role)) return;
-                            try {
-                              const c = await apiFetch<TenantConnector>(
-                                '/api/v1/admin/tenant-connector',
-                                {
-                                  method: 'PATCH',
-                                  headers: authHeaders(token),
-                                  json: { external_hospital_api_key: null },
-                                }
-                              );
-                              setConnector(c);
-                              setConnMsg('Anahtar temizlendi.');
-                            } catch (e) {
-                              setConnMsg(formatApiError(e));
-                            }
-                          })()
-                        }
-                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                      >
-                        Anahtarı Temizle
-                      </button>
-                    </div>
-                  </form>
                 </SectionCard>
               )}
             </div>

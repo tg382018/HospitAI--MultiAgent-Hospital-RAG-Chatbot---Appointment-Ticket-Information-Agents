@@ -24,6 +24,7 @@ class AppointmentStatus(StrEnum):
     CANCELLED = "cancelled"
     COMPLETED = "completed"
     NO_SHOW = "no_show"
+    BLOCKED = "blocked"  # admin-reserved, not bookable
 
 
 class TicketPriority(StrEnum):

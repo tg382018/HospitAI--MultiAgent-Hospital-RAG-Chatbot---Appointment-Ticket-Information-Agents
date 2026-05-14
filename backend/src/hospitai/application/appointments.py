@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import unicodedata
 import uuid
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
+
+_TZ_TURKEY = timezone(timedelta(hours=3))
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import or_, select
@@ -36,11 +38,11 @@ def utc_day_bounds(d: date) -> tuple[datetime, datetime]:
 
 
 def default_clinic_hours(d: date) -> tuple[datetime, datetime]:
-    """09:00–17:00 UTC on the given calendar day (MVP; later per-tenant TZ)."""
-    day_start = datetime.combine(d, time.min, tzinfo=UTC)
+    """09:00–17:00 Turkey local time (UTC+3) on the given calendar day."""
+    day_start_local = datetime.combine(d, time.min, tzinfo=_TZ_TURKEY)
     return (
-        day_start + timedelta(hours=9),
-        day_start + timedelta(hours=17),
+        day_start_local + timedelta(hours=9),   # 09:00 +03:00 = 06:00 UTC
+        day_start_local + timedelta(hours=17),  # 17:00 +03:00 = 14:00 UTC
     )
 
 
@@ -54,15 +56,18 @@ def compute_free_slots(
     busy: list[tuple[datetime, datetime]],
     *,
     slot_minutes: int = 30,
+    min_start: datetime | None = None,
 ) -> list[tuple[datetime, datetime]]:
+    """Return free (start, end) pairs. Slots starting before min_start are excluded."""
     step = timedelta(minutes=slot_minutes)
     slots: list[tuple[datetime, datetime]] = []
     cursor = work_start
     while cursor + step <= work_end:
         slot_end = cursor + step
-        conflict = any(ranges_overlap(cursor, slot_end, b0, b1) for b0, b1 in busy)
-        if not conflict:
-            slots.append((cursor, slot_end))
+        if min_start is None or cursor >= min_start:
+            conflict = any(ranges_overlap(cursor, slot_end, b0, b1) for b0, b1 in busy)
+            if not conflict:
+                slots.append((cursor, slot_end))
         cursor = slot_end
     return slots
 
@@ -122,7 +127,10 @@ async def list_available_slots(
         window_start=day_start,
         window_end=day_end,
     )
-    return compute_free_slots(work_start, work_end, busy, slot_minutes=slot_minutes)
+    # For today: only show slots that start at least 30 minutes from now (in Turkey local time)
+    now_turkey = datetime.now(tz=_TZ_TURKEY)
+    min_start = (now_turkey + timedelta(minutes=30)) if day == now_turkey.date() else None
+    return compute_free_slots(work_start, work_end, busy, slot_minutes=slot_minutes, min_start=min_start)
 
 
 async def list_available_slots_for_chat(
@@ -304,9 +312,13 @@ async def get_appointment_in_tenant(
     tenant_id: uuid.UUID,
     appointment_id: uuid.UUID,
 ) -> Appointment:
-    stmt = select(Appointment).where(
-        Appointment.tenant_id == tenant_id,
-        Appointment.id == appointment_id,
+    stmt = (
+        select(Appointment)
+        .options(selectinload(Appointment.doctor), selectinload(Appointment.department))
+        .where(
+            Appointment.tenant_id == tenant_id,
+            Appointment.id == appointment_id,
+        )
     )
     row = await session.execute(stmt)
     appt = row.scalar_one_or_none()
@@ -398,3 +410,67 @@ async def find_active_doctor_by_name(
     if len(rows) > 1:
         return None, "ambiguous"
     return rows[0], "ok"
+
+
+async def admin_doctor_day_slots(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    doctor_id: uuid.UUID,
+    day: date,
+    slot_minutes: int = 30,
+) -> list[dict[str, Any]]:
+    """All clinic slots for a day with free / blocked (admin) / booked (patient) state."""
+    stmt = select(Doctor).where(Doctor.id == doctor_id, Doctor.tenant_id == tenant_id)
+    doctor = (await session.execute(stmt)).scalar_one_or_none()
+    if doctor is None:
+        raise DomainError("not_found", "Doctor not found", status_code=404)
+
+    work_start, work_end = default_clinic_hours(day)
+    step = timedelta(minutes=slot_minutes)
+
+    appt_stmt = select(Appointment.id, Appointment.status, Appointment.starts_at, Appointment.ends_at).where(
+        Appointment.tenant_id == tenant_id,
+        Appointment.doctor_id == doctor_id,
+        Appointment.status != AppointmentStatus.CANCELLED,
+        Appointment.starts_at < work_end,
+        Appointment.ends_at > work_start,
+    )
+    appt_rows = (await session.execute(appt_stmt)).all()
+    appts: list[tuple[uuid.UUID, AppointmentStatus, datetime, datetime]] = [
+        (row[0], row[1], row[2], row[3]) for row in appt_rows
+    ]
+
+    out: list[dict[str, Any]] = []
+    cursor = work_start
+    while cursor + step <= work_end:
+        slot_end = cursor + step
+        overlapping = [(aid, st, s0, s1) for aid, st, s0, s1 in appts if ranges_overlap(cursor, slot_end, s0, s1)]
+        blocked = [(aid, st, s0, s1) for aid, st, s0, s1 in overlapping if st == AppointmentStatus.BLOCKED]
+        if blocked:
+            state = "blocked"
+            block_id = str(blocked[0][0])
+        elif overlapping:
+            state = "booked"
+            block_id = None
+        else:
+            state = "free"
+            block_id = None
+
+        st_tr = cursor.astimezone(_TZ_TURKEY)
+        en_tr = slot_end.astimezone(_TZ_TURKEY)
+        label = f"{st_tr.strftime('%H:%M')}–{en_tr.strftime('%H:%M')}"
+
+        out.append(
+            {
+                "starts_at": st_tr.isoformat(),
+                "ends_at": en_tr.isoformat(),
+                "time_start": st_tr.strftime("%H:%M"),
+                "label": label,
+                "state": state,
+                "block_id": block_id,
+            }
+        )
+        cursor = slot_end
+
+    return out
