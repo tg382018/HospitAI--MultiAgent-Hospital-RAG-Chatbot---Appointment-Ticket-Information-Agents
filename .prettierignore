@@ -1,5 +1,6 @@
 node_modules
-frontend/dist
+apps/web/dist
+apps/admin/dist
 backend/.venv
 coverage
 *.min.js

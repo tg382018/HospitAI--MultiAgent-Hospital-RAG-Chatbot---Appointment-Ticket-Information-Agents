@@ -16,6 +16,7 @@ class User(Base, TenantScopedMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),
         UniqueConstraint("tenant_id", "national_id", name="uq_users_tenant_national_id"),
+        UniqueConstraint("tenant_id", "phone", name="uq_users_tenant_phone"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -23,6 +24,7 @@ class User(Base, TenantScopedMixin, TimestampMixin):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     national_id: Mapped[str | None] = mapped_column(String(11), nullable=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, native_enum=False, length=32, values_callable=enum_values),
         nullable=False,

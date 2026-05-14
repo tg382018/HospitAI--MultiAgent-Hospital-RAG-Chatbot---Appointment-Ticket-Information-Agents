@@ -46,14 +46,31 @@ def _effective_patient_user_id(state: ChatState) -> str:
     return (state.verified_patient_user_id or "").strip()
 
 
-def _bridge_tc_and_name(state: ChatState) -> tuple[str | None, str | None]:
-    raw = pid.extract_tc_from_text(state.user_message) or pid.normalize_tc(state.guest_national_id)
-    if not raw or not pid.is_valid_turkish_national_id(raw):
-        return None, None
+def _bridge_patient_identity(state: ChatState) -> dict[str, str | None]:
+    """Misafir hastane köprüsü için TC ve/veya cep + ad-soyad (mesaj veya iletişim formu)."""
     name = (pid.extract_stated_full_name(state.user_message, state.guest_full_name) or "").strip()
-    if len(name) < 3:
-        return raw, None
-    return raw, name
+    name_ok = name if len(name) >= 3 else None
+    tc_raw = pid.extract_tc_from_text(state.user_message) or pid.normalize_tc(
+        state.guest_national_id or ""
+    )
+    tc = tc_raw if tc_raw and pid.is_valid_turkish_national_id(tc_raw) else None
+    phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+        state.guest_phone or ""
+    )
+    return {"national_id": tc, "phone": phone, "full_name": name_ok}
+
+
+def _bridge_identity_ready(b: dict[str, str | None]) -> bool:
+    return bool(b.get("full_name")) and bool(b.get("national_id") or b.get("phone"))
+
+
+def _bridge_identity_payload_fragment(b: dict[str, str | None]) -> dict[str, Any]:
+    out: dict[str, Any] = {"full_name": b["full_name"]}
+    if b.get("national_id"):
+        out["national_id"] = b["national_id"]
+    if b.get("phone"):
+        out["phone"] = b["phone"]
+    return out
 
 
 def _bridge_map_appointments(raw: list[Any]) -> list[dict[str, Any]]:
@@ -197,13 +214,14 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
             return {"success": False, "error": "Hastane bulunamadı."}
 
         if hosp_bridge.bridge_is_configured(tenant):
-            tc, full_name = _bridge_tc_and_name(state)
-            if not tc or not full_name:
+            b = _bridge_patient_identity(state)
+            if not _bridge_identity_ready(b):
                 return {
                     "success": False,
                     "user_message_tr": (
-                        "Randevu bilgilerinizi hastane sisteminden almak için 11 haneli TC Kimlik "
-                        "numaranızı ve ad-soyadınızı yazın (iletişim formuyla da girebilirsiniz)."
+                        "Randevu bilgilerinizi hastane sisteminden almak için kayıtlı "
+                        "cep telefonunuzu ve ad-soyadınızı yazın "
+                        "(iletişim formuyla da girebilirsiniz)."
                     ),
                 }
             br = await hosp_bridge.dispatch_hospital_bridge(
@@ -211,8 +229,7 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                 tenant=tenant,
                 operation="appointments/query",
                 payload={
-                    "national_id": tc,
-                    "full_name": full_name,
+                    **_bridge_identity_payload_fragment(b),
                     "conversation_id": (state.conversation_id or "").strip() or None,
                 },
             )
@@ -251,9 +268,9 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                 "appointments": [],
                 "count": 0,
                 "user_message_tr": (
-                    "Randevularınızı göstermek için önce TC Kimlik numaranızı ve sistemde kayıtlı "
-                    "ad-soyadınızı yazın (tercihen iletişim formundaki adla aynı). Doğrulama "
-                    "ardından randevu saatlerinizi paylaşabilirim."
+                    "Randevularınızı göstermek için önce kayıtlı cep telefonunuzu ve sistemde "
+                    "kayıtlı ad-soyadınızı yazın (tercihen iletişim formundaki bilgilerle aynı). "
+                    "Doğrulama ardından randevu saatlerinizi paylaşabilirim."
                 ),
             }
 
@@ -281,24 +298,14 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
 
 
 async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
-    """TC + ad-soyad: köprü açıksa format + metadata; değilse yerel DB doğrulama."""
+    """Telefon veya TC + ad-soyad: köprü açıksa format + metadata; değilse yerel DB doğrulama."""
     if (state.user_id or "").strip():
         return {
             "success": True,
             "skipped": True,
             "user_message_tr": (
                 "Oturum açmış durumdasınız; randevularınız hesabınıza göre listelenir. "
-                "TC doğrulaması yalnızca giriş yapmadan yazarken gereklidir."
-            ),
-        }
-
-    tc = pid.extract_tc_from_text(state.user_message) or pid.normalize_tc(state.guest_national_id)
-    if not tc or not pid.is_valid_turkish_national_id(tc):
-        return {
-            "success": False,
-            "user_message_tr": (
-                "Geçerli bir 11 haneli TC Kimlik numarası yazın. Kimlik numaranızı "
-                "kimseyle paylaşmayın; yalnızca bu güvenli kanal üzerinden doğrulama için kullanın."
+                "Misafir doğrulaması yalnızca giriş yapmadan yazarken gereklidir."
             ),
         }
 
@@ -309,6 +316,24 @@ async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
             "user_message_tr": (
                 "Kayıtlı ad-soyadınızla aynı olacak şekilde adınızı ve soyadınızı yazın "
                 "(veya iletişim formundaki ad soyad alanını doldurun)."
+            ),
+        }
+
+    phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+        state.guest_phone or ""
+    )
+    tc_raw = pid.extract_tc_from_text(state.user_message) or pid.normalize_tc(
+        state.guest_national_id or ""
+    )
+    tc = tc_raw if tc_raw and pid.is_valid_turkish_national_id(tc_raw) else None
+
+    if not phone and not tc:
+        return {
+            "success": False,
+            "user_message_tr": (
+                "Randevu ve talepler için kayıtlı cep telefon numaranızı "
+                "(ör. 05xx xxx xx xx) ve ad-soyadınızı yazın. "
+                "Kimlik numaranızı yalnızca hastanenin resmi güvenli kanallarında paylaşın."
             ),
         }
 
@@ -326,16 +351,18 @@ async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
     except (ValueError, TypeError):
         return {"success": False, "user_message_tr": "Geçersiz sohbet oturumu."}
 
+    from sqlalchemy import select
+
+    from hospitai.infrastructure.db.models.conversation import Conversation
+
+    patient_user_id_str = ""
+
     async with get_session_factory()() as session:
         tenant = await _get_tenant(session, state.tenant_slug)
         if not tenant:
             return {"success": False, "user_message_tr": "Hastane bulunamadı."}
 
         if hosp_bridge.bridge_is_configured(tenant):
-            from sqlalchemy import select
-
-            from hospitai.infrastructure.db.models.conversation import Conversation
-
             crow = await session.execute(
                 select(Conversation).where(
                     Conversation.id == conv_uuid,
@@ -346,28 +373,44 @@ async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
             if conv is None:
                 return {"success": False, "user_message_tr": "Sohbet oturumu bulunamadı."}
             meta = dict(conv.extra) if conv.extra else {}
-            meta["patient_bridge_identity"] = {"national_id": tc, "full_name": stated.strip()[:255]}
+            bridge_id: dict[str, str] = {"full_name": stated.strip()[:255]}
+            if tc:
+                bridge_id["national_id"] = tc
+            if phone:
+                bridge_id["phone"] = phone
+            meta["patient_bridge_identity"] = bridge_id
             conv.extra = meta
             await session.commit()
             return {
                 "success": True,
                 "user_message_tr": (
-                    "Kimlik bilgileriniz alındı. Randevu veya talep işlemleri hastane sistemine "
+                    "İletişim bilgileriniz alındı. Randevu veya talep işlemleri hastane sistemine "
                     "iletilmeye hazır."
                 ),
             }
 
-        patient = await pid.find_patient_by_national_id(
-            session,
-            tenant_id=tenant.id,
-            national_id=tc,
-        )
+        patient = None
+        matched_by_phone = False
+        if phone:
+            patient = await pid.find_patient_by_phone(
+                session, tenant_id=tenant.id, phone_digits=phone
+            )
+            if patient is not None:
+                matched_by_phone = True
+        if patient is None and tc:
+            patient = await pid.find_patient_by_national_id(
+                session,
+                tenant_id=tenant.id,
+                national_id=tc,
+            )
+
         if patient is None:
             return {
                 "success": False,
                 "user_message_tr": (
-                    "Bu TC Kimlik numarası ile bu hastanede kayıtlı hasta bulunamadı. "
-                    "Numarayı kontrol edin veya kayıt için hastane müracaatını kullanın."
+                    "Bu bilgilerle bu hastanede kayıtlı hasta bulunamadı. "
+                    "Kayıtlı cep telefonunuzu ve ad-soyadınızı kontrol edin veya "
+                    "kayıt için hastane müracaatını kullanın."
                 ),
             }
 
@@ -380,10 +423,6 @@ async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
                 ),
             }
 
-        from sqlalchemy import select
-
-        from hospitai.infrastructure.db.models.conversation import Conversation
-
         crow = await session.execute(
             select(Conversation).where(
                 Conversation.id == conv_uuid,
@@ -395,20 +434,21 @@ async def verify_patient_identity_tool(state: ChatState) -> dict[str, Any]:
             return {"success": False, "user_message_tr": "Sohbet oturumu bulunamadı."}
 
         meta = dict(conv.extra) if conv.extra else {}
-        meta["patient_verification"] = {
-            "patient_user_id": str(patient.id),
-            "national_id_last4": tc[-4:],
-        }
+        pv: dict[str, str] = {"patient_user_id": str(patient.id)}
+        if matched_by_phone and phone:
+            pv["phone_last4"] = phone[-4:]
+        if tc:
+            pv["national_id_last4"] = tc[-4:]
+        meta["patient_verification"] = pv
         conv.extra = meta
         patient_user_id_str = str(patient.id)
         await session.commit()
 
     return {
         "success": True,
-        "patient_user_id": patient_user_id_str,
+        "patient_user_id": patient_user_id_str or None,
         "user_message_tr": (
-            "Kimlik doğrulaması tamam. Randevularınızı veya yeni randevu talebinizi "
-            "söyleyebilirsiniz."
+            "Doğrulama tamam. Randevularınızı veya yeni randevu talebinizi söyleyebilirsiniz."
         ),
     }
 
@@ -448,13 +488,13 @@ async def book_appointment_tool(
             return {"success": False, "user_message_tr": "Hastane bulunamadı."}
 
         if hosp_bridge.bridge_is_configured(tenant):
-            tc, full_name = _bridge_tc_and_name(state)
-            if not tc or not full_name:
+            b = _bridge_patient_identity(state)
+            if not _bridge_identity_ready(b):
                 return {
                     "success": False,
                     "user_message_tr": (
-                        "Randevu talebini hastaneye iletmek için TC Kimlik ve ad-soyad "
-                        "gerekir (iletişim formu veya mesaj)."
+                        "Randevu talebini hastaneye iletmek için kayıtlı cep telefonunuz ve "
+                        "ad-soyad gerekir (iletişim formu veya mesaj)."
                     ),
                 }
             br = await hosp_bridge.dispatch_hospital_bridge(
@@ -462,8 +502,7 @@ async def book_appointment_tool(
                 tenant=tenant,
                 operation="appointments/book",
                 payload={
-                    "national_id": tc,
-                    "full_name": full_name,
+                    **_bridge_identity_payload_fragment(b),
                     "starts_at": starts_at.isoformat(),
                     "ends_at": ends_at.isoformat(),
                     "doctor_name": dn,
@@ -487,9 +526,9 @@ async def book_appointment_tool(
             return {
                 "success": False,
                 "user_message_tr": (
-                    "Randevu oluşturmak için önce TC Kimlik ve ad-soyad ile doğrulama yapın "
-                    "veya hasta hesabınızla giriş yapın. Hastane köprüsü için ortam değişkenlerini "
-                    "tanımlayın."
+                    "Randevu oluşturmak için önce kayıtlı cep telefonunuz ve ad-soyad ile "
+                    "doğrulama yapın veya hasta hesabınızla giriş yapın. "
+                    "Hastane köprüsü için ortam değişkenlerini tanımlayın."
                 ),
             }
 
@@ -498,7 +537,7 @@ async def book_appointment_tool(
             return {
                 "success": False,
                 "user_message_tr": (
-                    "Hasta kaydı bulunamadı; önce TC ve ad-soyad ile doğrulama yapın."
+                    "Hasta kaydı bulunamadı; önce cep telefonu ve ad-soyad ile doğrulama yapın."
                 ),
             }
 
@@ -630,13 +669,13 @@ async def cancel_appointment_from_graph(state: ChatState) -> dict[str, Any]:
                 ),
             }
 
-        tc, full_name = _bridge_tc_and_name(state)
-        if not tc or not full_name:
+        b = _bridge_patient_identity(state)
+        if not _bridge_identity_ready(b):
             return {
                 "success": False,
                 "user_message_tr": (
-                    "İptal için TC Kimlik ve ad-soyad yazın. Randevu kaydı varsa mesajda "
-                    "UUID veya hastane referansını da belirtin."
+                    "İptal için kayıtlı cep telefonunuz ve ad-soyadınızı yazın. "
+                    "Randevu kaydı varsa mesajda UUID veya hastane referansını da belirtin."
                 ),
             }
 
@@ -646,8 +685,7 @@ async def cancel_appointment_from_graph(state: ChatState) -> dict[str, Any]:
             tenant=tenant,
             operation="appointments/cancel",
             payload={
-                "national_id": tc,
-                "full_name": full_name,
+                **_bridge_identity_payload_fragment(b),
                 "appointment_id": aid,
                 "user_message": state.user_message[:4000],
                 "conversation_id": (state.conversation_id or "").strip() or None,
@@ -680,16 +718,24 @@ async def create_ticket_tool(
 
         if hosp_bridge.bridge_is_configured(tenant):
             user = await _get_user(session, state.user_id, tenant.id)
-            tc, nm = _bridge_tc_and_name(state)
+            b = _bridge_patient_identity(state)
             if user is not None:
-                tc = (getattr(user, "national_id", None) or "").strip() or tc
-                nm = (user.full_name or "").strip() or nm
-            if not tc or not nm:
+                tc_u = (getattr(user, "national_id", None) or "").strip()
+                if tc_u and pid.is_valid_turkish_national_id(tc_u):
+                    b["national_id"] = tc_u
+                ph_u = (getattr(user, "phone", None) or "").strip()
+                ph_n = pid.normalize_tr_phone_digits(ph_u) if ph_u else None
+                if ph_n:
+                    b["phone"] = ph_n
+                nm = (user.full_name or "").strip()
+                if nm and len(nm) >= 3:
+                    b["full_name"] = nm
+            if not _bridge_identity_ready(b):
                 return {
                     "success": False,
                     "user_message_tr": (
-                        "Talebi hastaneye iletmek için TC Kimlik, ad-soyad ve şikayet metni "
-                        "gerekir."
+                        "Talebi hastaneye iletmek için kayıtlı cep telefonunuz, ad-soyad ve "
+                        "şikayet metni gerekir."
                     ),
                     "error": "bridge_identity_required",
                 }
@@ -698,11 +744,10 @@ async def create_ticket_tool(
                 tenant=tenant,
                 operation="tickets/create",
                 payload={
-                    "national_id": tc,
-                    "full_name": nm,
+                    **_bridge_identity_payload_fragment(b),
                     "subject": subject.strip()[:512],
                     "description": desc[:12000],
-                    "phone": (state.guest_phone or "").strip() or None,
+                    "phone": (state.guest_phone or "").strip() or b.get("phone") or None,
                     "email": (state.guest_email or "").strip() or None,
                     "conversation_id": (state.conversation_id or "").strip() or None,
                 },
@@ -774,12 +819,12 @@ async def list_tickets_tool(state: ChatState) -> dict[str, Any]:
         user = await _get_user(session, state.user_id, tenant.id)
 
         if user is None and hosp_bridge.bridge_is_configured(tenant):
-            tc, full_name = _bridge_tc_and_name(state)
-            if not tc or not full_name:
+            b = _bridge_patient_identity(state)
+            if not _bridge_identity_ready(b):
                 return {
                     "success": False,
                     "user_message_tr": (
-                        "Taleplerinizi görmek için TC Kimlik ve ad-soyad yazın "
+                        "Taleplerinizi görmek için kayıtlı cep telefonunuz ve ad-soyadınızı yazın "
                         "(veya hesabınızla giriş yapın)."
                     ),
                 }
@@ -788,8 +833,7 @@ async def list_tickets_tool(state: ChatState) -> dict[str, Any]:
                 tenant=tenant,
                 operation="tickets/query",
                 payload={
-                    "national_id": tc,
-                    "full_name": full_name,
+                    **_bridge_identity_payload_fragment(b),
                     "conversation_id": (state.conversation_id or "").strip() or None,
                 },
             )

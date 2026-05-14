@@ -12,6 +12,7 @@ from hospitai_agent.graph.quality import is_smalltalk_message
 from hospitai_agent.graph.registry import get_workflow_tools
 from hospitai_agent.graph.routing import (
     has_tc_kimlik_candidate,
+    has_tr_phone_candidate,
     wants_book_appointment,
     wants_cancel_appointment,
     wants_complaint_ticket_list,
@@ -24,7 +25,6 @@ from hospitai_agent.graph.state_types import (
     chat_state_to_graph_state,
     graph_state_to_chat_state,
 )
-from hospitai_agent.graph.streaming import chunk_text
 from hospitai_agent.intent import classify_intent
 from hospitai_agent.llm_client import get_llm
 from hospitai_agent.llm_profile import get_llm_profile, merge_llm_profile
@@ -93,11 +93,15 @@ async def handle_appointment(state: GraphState) -> GraphState:
     wants_book = wants_book_appointment(msg)
     wants_cancel = wants_cancel_appointment(msg)
     has_tc = has_tc_kimlik_candidate(msg)
+    has_phone = has_tr_phone_candidate(msg)
+    guest_phone_ok = bool((state.get("guest_phone") or "").strip())
+    guest_name_ok = len((state.get("guest_full_name") or "").strip()) >= 3
+    has_guest_identity = guest_phone_ok and guest_name_ok
 
     if not wants_book and not wants_list and not wants_slots and not wants_cancel:
         wants_slots = True
 
-    if has_tc and not (state.get("user_id") or "").strip():
+    if (has_tc or has_phone or has_guest_identity) and not (state.get("user_id") or "").strip():
         vr = await get_workflow_tools().verify_patient_identity(cs)
         state["tool_results"].append({"tool": "verify_patient_identity", "result": vr})
         if vr.get("success") and vr.get("patient_user_id"):
@@ -250,8 +254,8 @@ async def generate_response(state: GraphState) -> GraphState:
             "\n\nBu kullanıcı oturum açmadan yazıyor. Şikayet/talep oluşturma veya "
             "randevu gibi işlemlerde ad soyad ve telefon (tercihen e-posta) bilgisini iste; "
             "kullanıcı bu bilgileri sohbette veya uygulamadaki iletişim alanına girebilir. "
-            "Randevu geçmişi veya yeni randevu için önce 11 haneli TC ve kayıtlı ad-soyad "
-            "ile doğrulama iste; doğrulama sonrası saatleri paylaş veya müsait slota göre "
+            "Randevu geçmişi veya yeni randevu için önce kayıtlı cep telefonunuz ve "
+            "ad-soyad ile doğrulama iste; doğrulama sonrası saatleri paylaş veya müsait slota göre "
             "rezervasyon oluştur."
         )
 
@@ -319,43 +323,27 @@ async def generate_response(state: GraphState) -> GraphState:
     messages.append(HumanMessage(content=state["user_message"]))
 
     profile = merge_llm_profile(get_llm_profile(), state["llm_overrides"] or None)
-    try:
-        from langgraph.config import get_stream_writer
-
-        writer = get_stream_writer()
-    except Exception:
-        writer = None
 
     if not (profile.llm_api_key or profile.embedding_api_key):
         if state["tool_results"]:
             state["response"] = format_tool_response(state)
         else:
             state["response"] = GENERAL_FALLBACK
-        if writer is not None and state["response"]:
-            writer({"type": "token", "text": state["response"]})
         return state
 
     llm = get_llm(profile)
     try:
-        if writer is None:
-            result = await llm.ainvoke(messages)
-            state["response"] = result.content.strip()
-        else:
-            parts: list[str] = []
-            async for chunk in llm.astream(messages):
-                piece = chunk_text(chunk)
-                if piece:
-                    parts.append(piece)
-                    writer({"type": "token", "text": piece})
-            state["response"] = "".join(parts).strip()
+        # Generate silently — do NOT stream tokens here.
+        # Tokens are emitted only after quality + safety verification in output_guardrail,
+        # ensuring what the user sees is always the final, verified response.
+        result = await llm.ainvoke(messages)
+        state["response"] = result.content.strip()
     except Exception as exc:
         log.error("llm_response_error", error=str(exc))
         state["response"] = (
             "Üzgünüm, şu anda bir teknik sorun yaşıyorum. "
             "Lütfen daha sonra tekrar deneyin veya hastane bilgi hattını arayın."
         )
-        if writer is not None and state["response"]:
-            writer({"type": "token", "text": state["response"]})
 
     return state
 
@@ -363,4 +351,20 @@ async def generate_response(state: GraphState) -> GraphState:
 async def output_guardrail(state: GraphState) -> GraphState:
     cs = graph_state_to_chat_state(state)
     cs = await output_safety_check(cs)
-    return chat_state_to_graph_state(cs)
+    new_state = chat_state_to_graph_state(cs)
+
+    # Stream the final response only here — after quality + safety checks have both passed.
+    # This guarantees the streamed tokens always match the final response the client receives.
+    try:
+        from langgraph.config import get_stream_writer
+
+        writer = get_stream_writer()
+    except Exception:
+        writer = None
+
+    if writer is not None:
+        final_response = (new_state.get("response") or "").strip()
+        if final_response:
+            writer({"type": "token", "text": final_response})
+
+    return new_state

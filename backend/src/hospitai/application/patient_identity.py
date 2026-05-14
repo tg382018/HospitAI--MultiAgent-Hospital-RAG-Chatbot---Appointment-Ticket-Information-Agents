@@ -1,4 +1,4 @@
-"""TC Kimlik doğrulama ve ad-soyad eşleştirme (hasta doğrulama)."""
+"""Hasta doğrulama: kayıtlı cep telefonu veya TC + ad-soyad eşleştirme."""
 
 from __future__ import annotations
 
@@ -75,6 +75,41 @@ def extract_tc_from_text(text: str) -> str | None:
     return None
 
 
+def normalize_tr_phone_digits(raw: str) -> str | None:
+    """Türkiye GSM: 10 hane, başta 5 (ör. 5551234567). Boşluk/+90/0 öneklerini soyar."""
+    s = re.sub(r"\D", "", (raw or "").strip())
+    if not s:
+        return None
+    if s.startswith("90") and len(s) >= 12 and s[2] == "5":
+        s = s[2:]
+    if s.startswith("0") and len(s) >= 11 and s[1] == "5":
+        s = s[1:]
+    if len(s) == 10 and s[0] == "5" and s[1] in "0123456789":
+        return s
+    return None
+
+
+def extract_phone_from_text(text: str) -> str | None:
+    """Metindeki ilk geçerli TR cep numarasını 10 hane olarak döndürür."""
+    t = text or ""
+    for m in re.finditer(
+        r"(?:\+90|0090|0)?\s*(5\d{2}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2})\b",
+        t,
+        re.IGNORECASE,
+    ):
+        n = normalize_tr_phone_digits(m.group(1))
+        if n:
+            return n
+    d = re.sub(r"\D", "", t)
+    for i in range(0, max(0, len(d) - 9)):
+        chunk = d[i : i + 10]
+        if len(chunk) == 10 and chunk[0] == "5":
+            n = normalize_tr_phone_digits(chunk)
+            if n:
+                return n
+    return None
+
+
 def extract_stated_full_name(user_message: str, guest_full_name: str) -> str:
     if (guest_full_name or "").strip():
         return guest_full_name.strip()
@@ -113,6 +148,25 @@ async def find_patient_by_national_id(
     stmt = select(User).where(
         User.tenant_id == tenant_id,
         User.national_id == nid,
+        User.role == UserRole.PATIENT,
+        User.is_active.is_(True),
+    )
+    row = await session.execute(stmt)
+    return row.scalar_one_or_none()
+
+
+async def find_patient_by_phone(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    phone_digits: str,
+) -> User | None:
+    ph = normalize_tr_phone_digits(phone_digits)
+    if not ph:
+        return None
+    stmt = select(User).where(
+        User.tenant_id == tenant_id,
+        User.phone == ph,
         User.role == UserRole.PATIENT,
         User.is_active.is_(True),
     )

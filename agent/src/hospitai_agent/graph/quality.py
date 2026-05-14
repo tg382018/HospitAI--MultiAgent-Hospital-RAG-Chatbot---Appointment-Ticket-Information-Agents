@@ -223,6 +223,12 @@ async def verify_response_quality(state: GraphState) -> GraphState:
     if is_smalltalk_message(state.get("user_message") or ""):
         return state
 
+    # Randevu / talep: araç sonuçları ve sistem talimatı yanıtı zaten sınırlar; hakem burada
+    # sık sık "kanıt yok" diye eğitimli yanıtları (TC isteme, bilgi hattı) yanlış reddediyor.
+    intent_early = str(state.get("intent") or "")
+    if intent_early in {"appointment", "complaint"}:
+        return state
+
     profile = merge_llm_profile(get_llm_profile(), state.get("llm_overrides") or None)
     if not (profile.llm_api_key or profile.embedding_api_key):
         return state

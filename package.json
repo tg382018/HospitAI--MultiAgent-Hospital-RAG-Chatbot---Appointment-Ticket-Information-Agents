@@ -2,13 +2,17 @@
   "name": "hospitai",
   "private": true,
   "workspaces": [
-    "frontend"
+    "apps/web",
+    "apps/admin"
   ],
   "scripts": {
     "prepare": "husky",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,json,md,yml,yaml}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,css,json,md,yml,yaml}\" --ignore-path .gitignore",
-    "lint": "npm run lint -w frontend",
+    "lint": "npm run lint -w apps/web && npm run lint -w apps/admin",
+    "dev": "npm run dev -w apps/web",
+    "dev:admin": "npm run dev -w apps/admin",
+    "build": "npm run build -w apps/web && npm run build -w apps/admin",
     "docker:up": "docker compose -f infra/docker-compose.yml up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml down",
     "docker:logs": "docker compose -f infra/docker-compose.yml logs -f",

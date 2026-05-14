@@ -2,13 +2,15 @@
 
 HTTP (tercih): ``POST {base}/v1/hospitai-bridge/{operation}``
 
-- ``appointments/query`` — ``tenant_slug``, ``national_id``, ``full_name``, isteğe bağlı ``conversation_id``
-- ``appointments/book`` — ``national_id``, ``full_name``, ``starts_at``, ``ends_at``, ``doctor_name``,
-  isteğe bağlı ``department_name``, ``conversation_id``
-- ``appointments/cancel`` — ``national_id``, ``full_name``, isteğe bağlı ``appointment_id``, ``user_message``
-- ``tickets/query`` — ``national_id``, ``full_name``
-- ``tickets/create`` — ``national_id``, ``full_name``, ``subject``, ``description``, isteğe bağlı
-  ``phone``, ``email``
+- ``appointments/query`` — ``tenant_slug``, ``full_name``, isteğe bağlı ``phone`` ve/veya
+  ``national_id``, ``conversation_id``
+- ``appointments/book`` — ``full_name``, ``starts_at``, ``ends_at``, ``doctor_name``, isteğe bağlı
+  ``phone`` ve/veya ``national_id``, ``department_name``, ``conversation_id``
+- ``appointments/cancel`` — ``full_name``, isteğe bağlı ``phone`` ve/veya ``national_id``,
+  ``appointment_id``, ``user_message``
+- ``tickets/query`` — ``full_name``, isteğe bağlı ``phone`` ve/veya ``national_id``
+- ``tickets/create`` — ``full_name``, ``subject``, ``description``, isteğe bağlı ``phone``,
+  ``national_id``, ``email``
 
 İstek gövdesi her zaman ``tenant_slug`` içerir; Bearer için tenant ``external_hospital_api_key`` kullanılır.
 

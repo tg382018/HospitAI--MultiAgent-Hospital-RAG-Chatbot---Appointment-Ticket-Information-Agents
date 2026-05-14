@@ -59,6 +59,16 @@ def has_tc_kimlik_candidate(text: str) -> bool:
     return bool(re.search(r"\b\d{11}\b", text or ""))
 
 
+def has_tr_phone_candidate(text: str) -> bool:
+    """Metinde TR cep telefonu biçimi (05xx / +90 5xx / 5xx ile başlayan 10 hane)."""
+    t = text or ""
+    phone_like = r"(?:\+90|0090|0)?\s*5\d{2}[\s.-]?\d{3}[\s.-]?\d{2}[\s.-]?\d{2}\b"
+    if re.search(phone_like, t, re.IGNORECASE):
+        return True
+    d = re.sub(r"\D", "", t)
+    return bool(re.search(r"5\d{9}", d))
+
+
 def wants_complaint_ticket_list(text: str) -> bool:
     return bool(
         re.search(

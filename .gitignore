@@ -4,7 +4,6 @@ PLAN.md
 
 # Dependencies
 node_modules/
-frontend/node_modules/
 .pnp
 .pnp.js
 
@@ -27,6 +26,7 @@ htmlcov/
 
 # Environment (do not commit real secrets; *.env.example templates are tracked)
 .env
+infra/.env
 .env.local
 .env.*.local
 
@@ -37,7 +37,8 @@ htmlcov/
 .DS_Store
 
 # Build outputs
-frontend/dist/
+apps/web/dist/
+apps/admin/dist/
 *.log
 
 # Misc
