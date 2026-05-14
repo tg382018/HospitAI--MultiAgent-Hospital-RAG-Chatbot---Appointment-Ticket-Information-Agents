@@ -10,7 +10,7 @@ from typing import Annotated, Any
 import structlog
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import StreamingResponse
-from hospitai_agent.state import ChatState
+from state import ChatState
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession

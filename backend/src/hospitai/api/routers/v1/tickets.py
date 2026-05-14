@@ -11,7 +11,7 @@ from hospitai.api.deps import CurrentUser, SessionDep
 from hospitai.api.http_mapping import raise_from_domain
 from hospitai.api.schemas.tickets import CreateTicketRequest, TicketResponse
 from hospitai.application.errors import DomainError
-from hospitai.application.tickets import create_ticket, get_ticket_by_reference, list_tickets
+from hospitai.application.tickets import close_ticket, create_ticket, get_ticket_by_reference, list_tickets
 from hospitai.infrastructure.db.models.enums import TicketStatus
 from hospitai.workers.tasks import notify_domain_event
 
@@ -65,6 +65,26 @@ async def create_ticket_item(
         )
     except Exception:
         log.warning("notify_enqueue_failed", exc_info=True)
+    return TicketResponse.model_validate(ticket)
+
+
+@router.patch("/{reference}/close", response_model=TicketResponse)
+async def close_ticket_item(
+    session: SessionDep,
+    current: CurrentUser,
+    reference: str,
+) -> TicketResponse:
+    try:
+        ticket = await close_ticket(
+            session,
+            tenant_id=current.tenant_id,
+            reference=reference,
+            actor=current,
+        )
+        await session.commit()
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
     return TicketResponse.model_validate(ticket)
 
 

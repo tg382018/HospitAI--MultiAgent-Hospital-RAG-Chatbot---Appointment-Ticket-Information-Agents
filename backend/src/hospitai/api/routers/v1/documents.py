@@ -81,6 +81,7 @@ async def ingest_text_endpoint(
             extra_metadata=body.extra_metadata,
         )
         await session.commit()
+        await session.refresh(doc)
     except DomainError as e:
         await session.rollback()
         raise_from_domain(e)

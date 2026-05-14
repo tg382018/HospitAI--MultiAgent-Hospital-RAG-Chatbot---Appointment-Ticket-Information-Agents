@@ -122,6 +122,9 @@ function QuickChips({ onPick }: { onPick: (label: string) => void }) {
   );
 }
 
+/* ─── Tenant slug (from env, defaults to demo-hospital) ─────────────────── */
+const TENANT_SLUG = (import.meta.env.VITE_TENANT_SLUG as string | undefined) ?? 'demo-hospital';
+
 /* ─── Main component ─────────────────────────────────────────────────────── */
 export function ChatApp() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -130,15 +133,23 @@ export function ChatApp() {
   const [chatErr, setChatErr] = useState('');
   const [sending, setSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [hospitalName, setHospitalName] = useState('');
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const chatAreaRef = useRef<HTMLDivElement>(null);
 
-  /* Load stored conversation id */
+  /* Load stored conversation id + hospital name */
   useEffect(() => {
     const cid = sessionStorage.getItem(SS_CONV);
     if (cid) setConversationId(cid);
+    // Fetch hospital name from public endpoint
+    fetch(`/api/v1/public/tenant-info?slug=${TENANT_SLUG}`)
+      .then((r) => r.json())
+      .then((d: { name: string }) => {
+        if (d?.name) setHospitalName(d.name);
+      })
+      .catch(() => {});
   }, []);
 
   /* Auto-scroll to bottom on new messages */
@@ -279,7 +290,9 @@ export function ChatApp() {
               />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">HospitAI</h1>
+              <h1 className="text-xl font-bold text-white tracking-tight">
+                {hospitalName || 'HospitAI'}
+              </h1>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="pulse-green w-2 h-2 rounded-full bg-green-400 inline-block" />
                 <span className="text-xs text-sky-100 font-medium">Çevrimiçi · 7/24 Aktif</span>
@@ -434,7 +447,8 @@ export function ChatApp() {
             </button>
           </form>
           <p className="mt-2 text-center text-[10px] text-slate-400">
-            HospitAI · Yapay zeka tarafından üretilir · Acil durumlarda 112'yi arayın
+            {hospitalName || 'HospitAI'} · Yapay zeka tarafından üretilir · Acil durumlarda 112'yi
+            arayın
           </p>
         </div>
       </div>

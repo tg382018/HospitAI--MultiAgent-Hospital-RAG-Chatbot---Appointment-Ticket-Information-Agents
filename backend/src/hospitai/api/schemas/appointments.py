@@ -37,6 +37,19 @@ class AppointmentResponse(BaseModel):
     ends_at: datetime
     status: str
     notes: str | None
+    guest_display_name: str | None = None
+    guest_contact: str | None = None
+    doctor_name: str | None = None
+    department_name: str | None = None
+
+    @classmethod
+    def model_validate(cls, obj, **kwargs):  # type: ignore[override]
+        instance = super().model_validate(obj, **kwargs)
+        if hasattr(obj, "doctor") and obj.doctor is not None:
+            instance.doctor_name = obj.doctor.full_name
+        if hasattr(obj, "department") and obj.department is not None:
+            instance.department_name = obj.department.name
+        return instance
 
 
 class ExternalBookAppointmentRequest(BaseModel):

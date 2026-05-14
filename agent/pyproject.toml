@@ -24,7 +24,7 @@ dependencies = [
 dev = ["ruff>=0.11"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hospitai_agent"]
+packages = ["src/graph", "src/llm", "src/rag", "src/vectordb", "src/tools"]
 
 [tool.ruff]
 target-version = "py311"

@@ -13,9 +13,9 @@ from typing import Any
 
 import httpx
 import structlog
-from hospitai_agent.state import ChatState
+from state import ChatState
 from sqlalchemy.orm import selectinload
-from hospitai_agent.tools.contracts import ChatWorkflowTools
+from tools.contracts import ChatWorkflowTools
 
 from hospitai.application import appointments as appt_svc
 from hospitai.application import patient_identity as pid
@@ -206,7 +206,7 @@ async def list_available_slots_for_graph(state: ChatState) -> dict[str, Any]:
             target_date=str(sp.get("target_date") or ""),
         )
 
-    from hospitai_agent.tools.slot_params import extract_slot_query_params
+    from tools.slot_params import extract_slot_query_params
 
     p = extract_slot_query_params(state.user_message)
     return await list_available_slots_tool(
@@ -763,7 +763,7 @@ async def book_appointment_from_graph(state: ChatState) -> dict[str, Any]:
             department_name=str(bp.get("department_name") or ""),
         )
 
-    from hospitai_agent.tools.slot_params import extract_slot_query_params
+    from tools.slot_params import extract_slot_query_params
 
     msg = state.user_message
     p = extract_slot_query_params(msg)
@@ -1192,7 +1192,7 @@ async def get_ticket_status_by_reference_tool(
 
 async def get_ticket_by_reference_for_graph(state: ChatState) -> dict[str, Any]:
     """Resolve TKT-… from ``user_message`` then delegate (complaint graph node)."""
-    from hospitai_agent.tools.ticket_reference import extract_ticket_reference
+    from tools.ticket_reference import extract_ticket_reference
 
     ref = extract_ticket_reference(state.user_message)
     if not ref:

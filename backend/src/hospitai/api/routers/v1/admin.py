@@ -230,3 +230,40 @@ async def patch_admin_user(
         await session.rollback()
         raise_from_domain(e)
     return AdminUserPublic.model_validate(updated)
+
+
+# ---- Tenant display name ---------------------------------------------------
+
+
+@router.get("/tenant-name")
+async def get_tenant_name(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> dict[str, str]:
+    """Return the current display name of the tenant."""
+    stmt = select(Tenant.name, Tenant.slug).where(Tenant.id == user.tenant_id)
+    row = (await session.execute(stmt)).first()
+    if row is None:
+        raise_from_domain(DomainError("tenant_not_found", "Tenant not found", status_code=404))
+    return {"name": row.name, "slug": row.slug}
+
+
+@router.patch("/tenant-name")
+async def patch_tenant_name(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    body: dict,
+) -> dict[str, str]:
+    """Update the display name of the tenant. Admin only."""
+    new_name: str = (body.get("name") or "").strip()
+    if not new_name:
+        raise_from_domain(DomainError("validation_error", "name must not be empty", status_code=422))
+    stmt = select(Tenant).where(Tenant.id == user.tenant_id)
+    result = await session.execute(stmt)
+    tenant = result.scalar_one_or_none()
+    if tenant is None:
+        raise_from_domain(DomainError("tenant_not_found", "Tenant not found", status_code=404))
+    tenant.name = new_name
+    await session.commit()
+    await session.refresh(tenant)
+    return {"name": tenant.name, "slug": tenant.slug}

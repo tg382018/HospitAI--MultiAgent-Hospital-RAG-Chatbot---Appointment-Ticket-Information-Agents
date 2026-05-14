@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hospitai_agent.llm.profile import LLMProfile, configure_llm_profile
-from hospitai_agent.rag.profile import RagInfrastructureProfile, configure_rag_profile
+from llm.profile import LLMProfile, configure_llm_profile
+from rag.profile import RagInfrastructureProfile, configure_rag_profile
 
 from hospitai.infrastructure.agent_tool_env import apply_optional_agent_env
 from hospitai.infrastructure.settings import get_settings

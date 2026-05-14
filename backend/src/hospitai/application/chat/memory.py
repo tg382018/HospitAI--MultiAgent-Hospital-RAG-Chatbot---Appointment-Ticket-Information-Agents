@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from hospitai_agent.state import ChatState
+from state import ChatState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

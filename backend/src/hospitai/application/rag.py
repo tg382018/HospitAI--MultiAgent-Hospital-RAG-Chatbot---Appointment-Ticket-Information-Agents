@@ -11,9 +11,9 @@ import uuid
 from pathlib import Path
 
 import structlog
-from hospitai_agent.rag.chunking import chunk_text
-from hospitai_agent.rag.embeddings import embed_single, embed_texts
-from hospitai_agent.rag.vector_db import (
+from rag.chunking import chunk_text
+from rag.embeddings import embed_single, embed_texts
+from vectordb.chroma import (
     add_chunks_to_collection,
     delete_document_vectors,
     query_collection,
