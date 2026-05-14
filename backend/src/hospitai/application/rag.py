@@ -18,7 +18,7 @@ from vectordb.chroma import (
     delete_document_vectors,
     query_collection,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -264,6 +264,110 @@ async def delete_document(
 
 
 # ---------------------------------------------------------------------------
+# Update document text (re-chunk + re-embed)
+# ---------------------------------------------------------------------------
+
+
+async def update_document_text(
+    session: AsyncSession,
+    *,
+    tenant: Tenant,
+    document_id: uuid.UUID,
+    content: str,
+    title: str | None = None,
+) -> Document:
+    """Replace document body: delete old vectors/chunks, re-chunk and embed like new ingest."""
+    doc = await get_document(session, tenant_id=tenant.id, document_id=document_id)
+
+    raw = (content or "").strip()
+    if not raw:
+        raise DomainError(
+            "empty_document",
+            "Document contains no text",
+            status_code=422,
+        )
+
+    if title is not None:
+        t = title.strip()
+        if t:
+            doc.title = t
+
+    doc.status = DocumentStatus.PROCESSING.value
+    doc.error_message = None
+    await session.flush()
+
+    try:
+        await asyncio.to_thread(delete_document_vectors, tenant.slug, document_id)
+        await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+        await session.flush()
+
+        chunks = await asyncio.to_thread(chunk_text, raw)
+        if not chunks:
+            raise DomainError(
+                "empty_document",
+                "Chunking produced no results",
+                status_code=422,
+            )
+
+        chunk_texts = [c["content"] for c in chunks]
+        embeddings = await asyncio.to_thread(embed_texts, chunk_texts)
+
+        vector_ids = await asyncio.to_thread(
+            add_chunks_to_collection,
+            tenant.slug,
+            document_id=doc.id,
+            chunks=chunk_texts,
+            embeddings=embeddings,
+            metadatas=[
+                {
+                    "document_id": str(doc.id),
+                    "title": doc.title,
+                    "source_type": doc.source_type,
+                    "chunk_index": c["chunk_index"],
+                }
+                for c in chunks
+            ],
+        )
+
+        for i, chunk in enumerate(chunks):
+            session.add(
+                DocumentChunk(
+                    document_id=doc.id,
+                    tenant_id=tenant.id,
+                    chunk_index=chunk["chunk_index"],
+                    content=chunk["content"],
+                    token_count=chunk["token_count"],
+                    vector_id=vector_ids[i] if i < len(vector_ids) else None,
+                )
+            )
+
+        doc.status = DocumentStatus.COMPLETED.value
+        doc.chunk_count = len(chunks)
+        await session.flush()
+
+        log.info(
+            "document_updated",
+            document_id=str(doc.id),
+            tenant_slug=tenant.slug,
+            chunks=len(chunks),
+        )
+    except DomainError:
+        raise
+    except Exception as exc:
+        doc.status = DocumentStatus.FAILED.value
+        doc.error_message = str(exc)[:2000]
+        await session.flush()
+        log.error("document_update_failed", document_id=str(doc.id), error=str(exc))
+        raise DomainError(
+            "update_failed",
+            f"Document update failed: {exc!s}",
+            status_code=500,
+        ) from exc
+
+    return doc
+
+
+# ---------------------------------------------------------------------------
 # Reindex embeddings (same chunk text, new vectors — e.g. embedding model change)
 # ---------------------------------------------------------------------------
 
@@ -363,14 +467,25 @@ async def get_document(
     *,
     tenant_id: uuid.UUID,
     document_id: uuid.UUID,
+    load_chunks: bool = False,
 ) -> Document:
     """Get a single document by ID within a tenant."""
     stmt = select(Document).where(Document.id == document_id, Document.tenant_id == tenant_id)
+    if load_chunks:
+        stmt = stmt.options(selectinload(Document.chunks))
     result = await session.execute(stmt)
     doc = result.scalar_one_or_none()
     if doc is None:
         raise DomainError("document_not_found", "Document not found", status_code=404)
     return doc
+
+
+def merged_document_content(doc: Document) -> str:
+    """Rebuild editable text from stored chunks (best-effort join)."""
+    if not doc.chunks:
+        return ""
+    ordered = sorted(doc.chunks, key=lambda c: c.chunk_index)
+    return "\n\n".join(c.content for c in ordered)
 
 
 async def retrieve_context(

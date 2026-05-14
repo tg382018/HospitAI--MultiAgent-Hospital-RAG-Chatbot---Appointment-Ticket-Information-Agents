@@ -247,7 +247,11 @@ async def create_appointment(
     guest_contact: str | None = None,
 ) -> Appointment:
     if starts_at.tzinfo is None or ends_at.tzinfo is None:
-        raise DomainError("invalid_time", "starts_at and ends_at must be timezone-aware (UTC)", status_code=400)
+        raise DomainError(
+            "invalid_time",
+            "starts_at and ends_at must be timezone-aware (e.g. Europe/Istanbul +03:00 or UTC)",
+            status_code=400,
+        )
     if ends_at <= starts_at:
         raise DomainError("invalid_range", "ends_at must be after starts_at", status_code=400)
 

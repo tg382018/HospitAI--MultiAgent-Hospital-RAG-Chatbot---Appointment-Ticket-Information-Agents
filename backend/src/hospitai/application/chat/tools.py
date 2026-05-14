@@ -615,12 +615,13 @@ async def book_appointment_tool(
         return {
             "success": False,
             "user_message_tr": (
-                "Başlangıç saatini anlayamadım. Örnek: 2026-12-20T14:30:00+00:00 veya "
+                "Başlangıç saatini anlayamadım. Örnek: 2026-12-20T14:30:00+03:00 veya "
                 "2026-12-20 14:30 biçiminde yazın."
             ),
         }
+    # Kullanıcı ve slot listesi Türkiye saatini (+03) kastediyor; saat dilimi yoksa UTC değil TR varsay.
     if starts_at.tzinfo is None:
-        starts_at = starts_at.replace(tzinfo=UTC)
+        starts_at = starts_at.replace(tzinfo=_TZ_TURKEY)
     ends_at = starts_at + timedelta(minutes=30)
 
     async with get_session_factory()() as session:
@@ -785,7 +786,7 @@ async def book_appointment_from_graph(state: ChatState) -> dict[str, Any]:
         parts = hm.split(":")
         h, mi = int(parts[0]), int(parts[1])
         sec = int(tm.group(3)) if tm.group(3) else 0
-        starts_iso = f"{day}T{h:02d}:{mi:02d}:{sec:02d}+00:00"
+        starts_iso = f"{day}T{h:02d}:{mi:02d}:{sec:02d}+03:00"
 
     if not starts_iso:
         return {

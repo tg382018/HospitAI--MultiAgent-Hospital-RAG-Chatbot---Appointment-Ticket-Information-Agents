@@ -5,6 +5,7 @@ Endpoints:
 - GET    /documents               → List documents for the tenant
 - GET    /documents/{id}          → Get a single document
 - DELETE /documents/{id}          → Delete a document + its vectors
+- PATCH  /documents/{id}            → Update title + text, re-chunk and refresh vectors
 - POST   /documents/{id}/reindex-embeddings → Queue Celery job to refresh vectors (admin/staff)
 - POST   /documents/retrieve      → Retrieve relevant chunks for a query
 """
@@ -20,6 +21,7 @@ from hospitai.api.http_mapping import raise_from_domain
 from hospitai.api.schemas.documents import (
     DocumentListResponse,
     DocumentResponse,
+    DocumentUpdateRequest,
     IngestTextRequest,
     ReindexQueuedResponse,
     RetrievedChunk,
@@ -32,7 +34,9 @@ from hospitai.application.rag import (
     get_document,
     ingest_text,
     list_documents,
+    merged_document_content,
     retrieve_context,
+    update_document_text,
 )
 from hospitai.application.tenant_policy import rag_retrieval_enabled
 from hospitai.workers.tasks import reindex_document_embeddings_task
@@ -124,10 +128,60 @@ async def get_document_endpoint(
             session,
             tenant_id=current.tenant_id,
             document_id=document_id,
+            load_chunks=True,
         )
     except DomainError as e:
         raise_from_domain(e)
-    return DocumentResponse.model_validate(doc)
+    base = DocumentResponse.model_validate(doc)
+    return base.model_copy(update={"content": merged_document_content(doc)})
+
+
+@router.patch("/{document_id}", response_model=DocumentResponse)
+async def update_document_endpoint(
+    session: SessionDep,
+    current: CurrentUser,
+    document_id: uuid.UUID,
+    body: DocumentUpdateRequest,
+) -> DocumentResponse:
+    """Update document title and/or body; re-chunks and replaces Chroma vectors."""
+    from hospitai.infrastructure.db.models.enums import UserRole
+
+    if current.role not in {UserRole.ADMIN, UserRole.STAFF}:
+        raise_from_domain(
+            DomainError("forbidden", "Only admin/staff can update documents", status_code=403)
+        )
+
+    from sqlalchemy import select
+
+    from hospitai.infrastructure.db.models.tenant import Tenant
+
+    tenant_stmt = select(Tenant).where(Tenant.id == current.tenant_id)
+    result = await session.execute(tenant_stmt)
+    tenant = result.scalar_one_or_none()
+    if tenant is None:
+        raise_from_domain(DomainError("tenant_not_found", "Tenant not found", status_code=404))
+
+    try:
+        await update_document_text(
+            session,
+            tenant=tenant,
+            document_id=document_id,
+            content=body.content,
+            title=body.title,
+        )
+        await session.commit()
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
+
+    doc = await get_document(
+        session,
+        tenant_id=current.tenant_id,
+        document_id=document_id,
+        load_chunks=True,
+    )
+    base = DocumentResponse.model_validate(doc)
+    return base.model_copy(update={"content": merged_document_content(doc)})
 
 
 # ---- Delete document -------------------------------------------------------

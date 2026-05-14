@@ -51,9 +51,9 @@ TOOLS: list[dict] = [
                     "starts_at": {
                         "type": "string",
                         "description": (
-                            "ISO datetime örn. 2026-05-15T10:00:00+00:00. "
-                            "Kullanıcı sadece '10:00' gibi saat verdiyse, "
-                            "önceki konuşmadan tarihi çıkar ve tam ISO formatını oluştur."
+                            "Randevu başlangıcı: Türkiye saati ile ISO datetime, mutlaka +03:00 ofseti kullan "
+                            "(örn. 2026-05-16T11:00:00+03:00). list_available_slots çıktısındaki saatlerle "
+                            "aynı saat diliminde olmalı; asla +00:00 ile 'yerel saat' gösterme."
                         ),
                     },
                     "doctor_name": {"type": "string", "description": "Doktor adı."},

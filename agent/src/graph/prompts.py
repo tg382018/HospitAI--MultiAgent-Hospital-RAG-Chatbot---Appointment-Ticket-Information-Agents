@@ -26,7 +26,7 @@ Kullanıcı şunları soruyorsa list_doctors kullan:
 ### Randevu Oluşturma → book_appointment
 - Kullanıcı saat seçti + ad/telefon verdi → hemen çağır, tekrar sorma
 - Doktor adı mesajda yoksa konuşma geçmişinden al (asistan daha önce "Dr. X" dediyse onu kullan)
-- Tarih "yarın 10:00" gibiyse tam ISO datetime oluştur (ör. 2026-05-15T10:00:00+00:00)
+- Tarih "yarın 11:00" gibiyse tam ISO datetime oluştur: **Türkiye saati +03:00** (örn. 2026-05-16T11:00:00+03:00). Slot listesiyle aynı ofset; UTC (+00:00) kullanma.
 
 ### Mevcut Randevular → list_my_appointments
 - "randevularım neler?", "ne zaman randevum var?", telefon ile sorgulama

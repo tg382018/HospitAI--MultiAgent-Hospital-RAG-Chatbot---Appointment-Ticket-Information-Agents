@@ -26,6 +26,7 @@ type DocumentRow = {
   status: string;
   chunk_count: number;
   created_at: string;
+  content?: string | null;
 };
 type DocumentListResponse = { documents: DocumentRow[] };
 type TenantConnector = {
@@ -261,6 +262,11 @@ export default function App() {
   const [ingestSource, setIngestSource] = useState('manual');
   const [ingestMsg, setIngestMsg] = useState<string | null>(null);
   const [reindexHint, setReindexHint] = useState<string | null>(null);
+  const [editDoc, setEditDoc] = useState<DocumentRow | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editDocErr, setEditDocErr] = useState<string | null>(null);
+  const [editDocLoading, setEditDocLoading] = useState(false);
 
   // Connector
   const [connector, setConnector] = useState<TenantConnector | null>(null);
@@ -516,21 +522,21 @@ export default function App() {
         await apiFetch(`/api/v1/admin/doctors/${doctorEdit.id}`, {
           method: 'PATCH',
           headers: authHeaders(token),
-          body: JSON.stringify({
+          json: {
             full_name: doctorFormName,
             title: doctorFormTitle || null,
             department_name: dept || null,
-          }),
+          },
         });
       } else {
         await apiFetch('/api/v1/admin/doctors', {
           method: 'POST',
           headers: authHeaders(token),
-          body: JSON.stringify({
+          json: {
             full_name: doctorFormName,
             title: doctorFormTitle || null,
             department_name: dept || null,
-          }),
+          },
         });
       }
       setDoctorFormOpen(false);
@@ -546,7 +552,7 @@ export default function App() {
       await apiFetch(`/api/v1/admin/doctors/${doc.id}`, {
         method: 'PATCH',
         headers: authHeaders(token),
-        body: JSON.stringify({ is_active: !doc.is_active }),
+        json: { is_active: !doc.is_active },
       });
       await loadDoctors();
     } catch (e) {
@@ -571,7 +577,7 @@ export default function App() {
         await apiFetch(`/api/v1/admin/doctors/${blockedSlotDoctor.id}/blocked-slots`, {
           method: 'POST',
           headers: authHeaders(token),
-          body: JSON.stringify({ date: blockedSlotDay, time: sl.time_start }),
+          json: { date: blockedSlotDay, time: sl.time_start },
         });
       } else if (sl.state === 'blocked' && sl.block_id) {
         await apiFetch(
@@ -665,6 +671,46 @@ export default function App() {
       setReindexHint(`Embedding kuyruğu: ${r.task_id.slice(0, 10)}…`);
     } catch (e) {
       setDocsErr(formatApiError(e));
+    }
+  }
+
+  async function openEditDocument(id: string) {
+    if (!token || !canManageDocuments(role)) return;
+    setEditDocLoading(true);
+    setEditDocErr(null);
+    try {
+      const d = await apiFetch<DocumentRow>(`/api/v1/documents/${id}`, {
+        headers: authHeaders(token),
+      });
+      setEditDoc(d);
+      setEditTitle(d.title);
+      setEditContent(d.content ?? '');
+    } catch (e) {
+      setDocsErr(`Doküman yüklenemedi: ${formatApiError(e)}`);
+    } finally {
+      setEditDocLoading(false);
+    }
+  }
+
+  async function onSaveEditDocument(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || !editDoc || !canManageDocuments(role)) return;
+    setEditDocErr(null);
+    if (!editContent.trim()) {
+      setEditDocErr('İçerik boş olamaz.');
+      return;
+    }
+    try {
+      await apiFetch(`/api/v1/documents/${editDoc.id}`, {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        json: { title: editTitle.trim(), content: editContent },
+      });
+      setEditDoc(null);
+      setReindexHint('Doküman güncellendi; metin yeniden parçalandı ve vektörler yenilendi.');
+      await loadDocs();
+    } catch (e) {
+      setEditDocErr(formatApiError(e));
     }
   }
 
@@ -1667,6 +1713,62 @@ export default function App() {
           {/* ══ RAG / DOCUMENTS ═══════════════════════════════════════════════ */}
           {activeTab === 'rag' && (
             <div className="space-y-6">
+              {editDoc && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                  <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+                    <h3 className="mb-1 text-base font-semibold text-slate-800">
+                      Dokümanı düzenle
+                    </h3>
+                    <p className="mb-4 text-xs text-slate-500">
+                      Kaydettiğinizde metin yeniden parçalanır ve Chroma vektörleri güncellenir.
+                    </p>
+                    {editDocLoading && <p className="mb-3 text-sm text-slate-400">Yükleniyor…</p>}
+                    <form onSubmit={(e) => void onSaveEditDocument(e)} className="space-y-3">
+                      <label className="block text-sm font-medium text-slate-700">
+                        Başlık
+                        <input
+                          required
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-sky-500 focus:outline-none"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          maxLength={512}
+                        />
+                      </label>
+                      <label className="block text-sm font-medium text-slate-700">
+                        İçerik
+                        <textarea
+                          required
+                          rows={14}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-900 focus:border-sky-500 focus:outline-none"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                        />
+                      </label>
+                      {editDocErr && <p className="text-sm text-red-600">{editDocErr}</p>}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditDoc(null);
+                            setEditDocErr(null);
+                          }}
+                          className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          İptal
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={editDocLoading}
+                          className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-5 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                        >
+                          Kaydet
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
               <SectionCard
                 title={`Dokümanlar (${docs.length})`}
                 action={
@@ -1706,13 +1808,23 @@ export default function App() {
                           </td>
                           <td className="py-3">
                             {canManageDocuments(role) && (
-                              <div className="flex gap-1.5">
+                              <div className="flex flex-wrap gap-1.5">
                                 {d.status === 'completed' && (
                                   <button
+                                    type="button"
                                     onClick={() => void onReindexEmbeddings(d.id)}
                                     className="rounded border border-sky-200 px-2 py-1 text-xs text-sky-700 hover:bg-sky-50"
                                   >
                                     Reindex
+                                  </button>
+                                )}
+                                {d.status !== 'processing' && d.status !== 'pending' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openEditDocument(d.id)}
+                                    className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Düzenle
                                   </button>
                                 )}
                                 <button

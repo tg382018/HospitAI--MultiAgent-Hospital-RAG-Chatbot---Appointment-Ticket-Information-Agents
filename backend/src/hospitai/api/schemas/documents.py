@@ -26,6 +26,19 @@ class IngestTextRequest(BaseModel):
     )
 
 
+class DocumentUpdateRequest(BaseModel):
+    title: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Yeni başlık; verilmezse mevcut başlık korunur",
+    )
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Güncel tam metin (yeniden parçalanır ve vektörler güncellenir)",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Response
 # ---------------------------------------------------------------------------
@@ -45,6 +58,10 @@ class DocumentResponse(BaseModel):
     extra_metadata: str | None = None
     created_at: datetime
     updated_at: datetime
+    content: str | None = Field(
+        default=None,
+        description="Birleştirilmiş metin; yalnızca tek doküman GET yanıtında doldurulur",
+    )
 
     model_config = {"from_attributes": True}
 
