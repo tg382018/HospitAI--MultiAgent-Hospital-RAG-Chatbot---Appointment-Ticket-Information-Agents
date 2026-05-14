@@ -79,6 +79,21 @@ class Settings(BaseSettings):
         validation_alias="PUBLIC_CHAT_DEFAULT_TENANT_SLUG",
         description="Tenant slug when chat is used without JWT and X-Tenant-Slug is omitted.",
     )
+    hospital_bridge_http_base_url: str | None = Field(
+        default=None,
+        validation_alias="HOSPITAL_BRIDGE_HTTP_BASE_URL",
+        description=(
+            "Tüm tenantlar için varsayılan hastane köprü HTTP tabanı (tenant dış URL yoksa). "
+            "POST {base}/v1/hospitai-bridge/…"
+        ),
+    )
+    hospital_bridge_rabbitmq_url: str | None = Field(
+        default=None,
+        validation_alias="HOSPITAL_BRIDGE_RABBITMQ_URL",
+        description=(
+            "Hastane köprüsü için RabbitMQ broker URL (amqp://…). HTTP tabanı yokken yayın kullanılır."
+        ),
+    )
 
     openai_api_key: str = Field(
         default="",

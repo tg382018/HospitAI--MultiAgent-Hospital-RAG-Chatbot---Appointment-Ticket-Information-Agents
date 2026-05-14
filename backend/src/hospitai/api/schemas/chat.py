@@ -37,6 +37,11 @@ class ChatRequest(BaseModel):
         max_length=320,
         description="Misafir iletişim: e-posta (isteğe bağlı).",
     )
+    guest_national_id: str | None = Field(
+        None,
+        max_length=11,
+        description="TC Kimlik No (isteğe bağlı; doğrulama için).",
+    )
 
 
 class ChatResponse(BaseModel):

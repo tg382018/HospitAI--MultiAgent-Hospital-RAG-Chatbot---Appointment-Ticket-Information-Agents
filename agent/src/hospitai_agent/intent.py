@@ -27,7 +27,8 @@ _KEYWORD_MAP: list[tuple[str, re.Pattern[str]]] = [
     (
         "appointment",
         re.compile(
-            r"\b(randevu|saat|boş|doktor\s+müsait|iptal|değiş|ertele|"
+            r"\b(randevu|saat|boş|doktor\s+müsait|iptal|değiş|ertele|unuttum|"
+            r"tc\s*kimlik|kimlik\s*no|t\.c\.|"
             r"appointment|cancel|reschedule|book|available\s+slot)\b",
             re.IGNORECASE,
         ),

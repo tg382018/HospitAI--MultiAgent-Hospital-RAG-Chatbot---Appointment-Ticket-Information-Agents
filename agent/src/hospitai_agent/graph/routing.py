@@ -11,7 +11,8 @@ def wants_my_appointments_list(text: str) -> bool:
     return bool(
         re.search(
             r"randevularım|randevu\s+listem|mevcut\s+randevu|kay[ıi]tl[ıi]\s+randevu|"
-            r"ald[ıi]ğ[ıi]m\s+randevu|my\s+appointments",
+            r"ald[ıi]ğ[ıi]m\s+randevu|randevum\b|randyevum\b|"
+            r"my\s+appointments",
             text,
             re.IGNORECASE,
         )
@@ -27,6 +28,35 @@ def wants_slot_search(text: str) -> bool:
             re.IGNORECASE,
         )
     )
+
+
+def wants_book_appointment(text: str) -> bool:
+    return bool(
+        re.search(
+            r"randevu\s+al|randevu\s+oluştur|rezervasyon|r(?:andevu)?\s*ay[ıi]r|"
+            r"book\s+(an\s+)?appointment|schedule\s+appointment|"
+            r"bu\s+saat(?:e|i)?\s+al|slotu\s+ay[ıi]r",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def wants_cancel_appointment(text: str) -> bool:
+    return bool(
+        re.search(
+            r"randevu(?:yu|m|yu)?\s+iptal|iptal\s+et|iptal\s+edeceğim|iptal\s+edecem|"
+            r"iptal\s+istiyorum|randevu\s+iptali|cancel\s+(my\s+)?appointment|"
+            r"appointment\s+cancel",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def has_tc_kimlik_candidate(text: str) -> bool:
+    """11 haneli aday (doğrulama aracında checksum kontrol edilir)."""
+    return bool(re.search(r"\b\d{11}\b", text or ""))
 
 
 def wants_complaint_ticket_list(text: str) -> bool:

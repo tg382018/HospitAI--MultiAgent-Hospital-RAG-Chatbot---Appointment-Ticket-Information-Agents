@@ -1,16 +1,10 @@
-import { FormEvent, useCallback, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 
-import { apiFetch, streamChat } from './lib/api';
-import { useAuthStore } from './store/auth';
-
-type TokenResponse = {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-};
+import { streamChat } from './lib/api';
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string };
+
+const SS_CONV = 'hospitai-chat-conversation-id';
 
 function formatErr(e: unknown): string {
   if (e && typeof e === 'object' && 'body' in e) {
@@ -26,53 +20,22 @@ function formatErr(e: unknown): string {
 }
 
 export function ChatApp() {
-  const tenantSlug = useAuthStore((s) => s.tenantSlug);
-  const setTenantSlug = useAuthStore((s) => s.setTenantSlug);
-  const accessToken = useAuthStore((s) => s.accessToken);
-  const setTokens = useAuthStore((s) => s.setTokens);
-  const clear = useAuthStore((s) => s.clear);
-
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [authErr, setAuthErr] = useState('');
-
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [chatErr, setChatErr] = useState('');
   const [sending, setSending] = useState(false);
 
-  const onAuth = useCallback(
-    async (ev: FormEvent) => {
-      ev.preventDefault();
-      setAuthErr('');
-      try {
-        const path = mode === 'register' ? '/api/v1/auth/register' : '/api/v1/auth/login';
-        const body =
-          mode === 'register'
-            ? { tenant_slug: tenantSlug, email, password, full_name: fullName || null }
-            : { tenant_slug: tenantSlug, email, password };
-        const res = await apiFetch<TokenResponse>(path, {
-          method: 'POST',
-          json: body,
-        });
-        setTokens({ accessToken: res.access_token, refreshToken: res.refresh_token });
-        setMessages([]);
-        setConversationId(null);
-      } catch (e) {
-        setAuthErr(formatErr(e));
-      }
-    },
-    [email, fullName, mode, password, setTokens, tenantSlug]
-  );
+  useEffect(() => {
+    const cid = sessionStorage.getItem(SS_CONV);
+    if (cid) setConversationId(cid);
+  }, []);
 
   const onSend = useCallback(
     async (ev: FormEvent) => {
       ev.preventDefault();
       const text = draft.trim();
-      if (!text || !accessToken) return;
+      if (!text) return;
       setChatErr('');
       setSending(true);
       setDraft('');
@@ -83,17 +46,20 @@ export function ChatApp() {
       ]);
       let acc = '';
       try {
-        const body: { message: string; conversation_id?: string } = { message: text };
+        const body: Record<string, unknown> = { message: text };
         if (conversationId) body.conversation_id = conversationId;
         await streamChat(
           '/api/v1/chat/stream',
           {
             method: 'POST',
-            headers: { Authorization: `Bearer ${accessToken}` },
+            headers: {},
             json: body,
           },
           {
-            onMeta: (d) => setConversationId(d.conversation_id),
+            onMeta: (d) => {
+              setConversationId(d.conversation_id);
+              sessionStorage.setItem(SS_CONV, d.conversation_id);
+            },
             onToken: (t) => {
               acc += t;
               setMessages((m) => {
@@ -138,104 +104,18 @@ export function ChatApp() {
         setSending(false);
       }
     },
-    [accessToken, conversationId, draft]
+    [conversationId, draft]
   );
-
-  if (!accessToken) {
-    return (
-      <div className="mx-auto max-w-md rounded-xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl">
-        <h2 className="mb-4 text-lg font-medium text-slate-100">Giriş</h2>
-        <p className="mb-4 text-sm text-slate-400">
-          Varsayılan hastane: <code className="text-emerald-400">demo-hospital</code> (ilk{' '}
-          <code className="text-slate-500">alembic upgrade head</code> ile oluşur).
-        </p>
-        <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">
-          Tenant slug
-        </label>
-        <input
-          className="mb-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-emerald-500/30 focus:ring-2"
-          value={tenantSlug}
-          onChange={(e) => setTenantSlug(e.target.value)}
-        />
-        <div className="mb-4 flex gap-2">
-          <button
-            type="button"
-            className={`rounded-lg px-3 py-1.5 text-sm ${mode === 'login' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-            onClick={() => setMode('login')}
-          >
-            Giriş yap
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg px-3 py-1.5 text-sm ${mode === 'register' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
-            onClick={() => setMode('register')}
-          >
-            Kayıt ol
-          </button>
-        </div>
-        <form className="flex flex-col gap-3" onSubmit={onAuth}>
-          {mode === 'register' ? (
-            <input
-              required
-              className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-emerald-500/30 focus:ring-2"
-              placeholder="Ad soyad"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          ) : null}
-          <input
-            required
-            type="email"
-            autoComplete="email"
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-emerald-500/30 focus:ring-2"
-            placeholder="E-posta"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            required
-            type="password"
-            autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-            minLength={8}
-            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-emerald-500/30 focus:ring-2"
-            placeholder="Şifre (min 8)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          {authErr ? <p className="text-sm text-rose-400">{authErr}</p> : null}
-          <button
-            type="submit"
-            className="rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-500"
-          >
-            {mode === 'register' ? 'Kayıt ol' : 'Giriş yap'}
-          </button>
-        </form>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-[70vh] flex-col">
-      <header className="mb-4 flex items-center justify-between border-b border-slate-800 pb-3">
-        <div>
-          <h2 className="text-lg font-medium text-slate-100">Sohbet</h2>
-          <p className="text-xs text-slate-500">
-            Tenant: {tenantSlug}
-            {conversationId ? ` · Oturum: ${conversationId.slice(0, 8)}…` : ''}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-          onClick={() => {
-            clear();
-            setMessages([]);
-            setConversationId(null);
-          }}
-        >
-          Çıkış
-        </button>
+      <header className="mb-4 border-b border-slate-800 pb-3">
+        <h2 className="text-lg font-medium text-slate-100">XYZ Hospital — Sohbet</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Randevu ve talepler için mesajınızda ad, soyad ve gerekiyorsa TC bilgisini yazabilirsiniz.
+        </p>
       </header>
+
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900/50 p-4">
         {messages.length === 0 ? (
           <p className="text-center text-sm text-slate-500">

@@ -40,6 +40,16 @@ def main() -> int:
             return 1
         print("OK /healthz")
 
+        anon = client.post(
+            "/api/v1/chat",
+            headers={"X-Tenant-Slug": tenant_slug},
+            json={"message": "Merhaba (misafir)."},
+        )
+        if anon.status_code != 200:
+            print("FAIL: anonymous chat", anon.status_code, anon.text[:800])
+            return 1
+        print("OK anonymous chat intent=", anon.json().get("intent"))
+
         reg = client.post(
             "/api/v1/auth/register",
             json={

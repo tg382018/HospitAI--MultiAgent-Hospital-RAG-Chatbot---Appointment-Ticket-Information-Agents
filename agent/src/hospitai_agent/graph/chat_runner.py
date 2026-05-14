@@ -21,6 +21,9 @@ async def run_chat(
     guest_full_name: str = "",
     guest_phone: str = "",
     guest_email: str = "",
+    guest_national_id: str = "",
+    conversation_id: str = "",
+    verified_patient_user_id: str = "",
 ) -> dict[str, Any]:
     """Run the full chat workflow and return the response dict."""
     graph = get_compiled_graph()
@@ -43,6 +46,9 @@ async def run_chat(
         guest_full_name=guest_full_name,
         guest_phone=guest_phone,
         guest_email=guest_email,
+        guest_national_id=guest_national_id,
+        conversation_id=conversation_id,
+        verified_patient_user_id=verified_patient_user_id,
         web_context="",
         web_used=False,
         strict_grounding=False,
@@ -65,6 +71,9 @@ async def iter_chat_sse(
     guest_full_name: str = "",
     guest_phone: str = "",
     guest_email: str = "",
+    guest_national_id: str = "",
+    conversation_id: str = "",
+    verified_patient_user_id: str = "",
 ) -> AsyncIterator[str]:
     """Run the chat graph with LangGraph custom stream (LLM tokens) + SSE lines."""
     graph = get_compiled_graph()
@@ -86,6 +95,9 @@ async def iter_chat_sse(
         guest_full_name=guest_full_name,
         guest_phone=guest_phone,
         guest_email=guest_email,
+        guest_national_id=guest_national_id,
+        conversation_id=conversation_id,
+        verified_patient_user_id=verified_patient_user_id,
         web_context="",
         web_used=False,
         strict_grounding=False,

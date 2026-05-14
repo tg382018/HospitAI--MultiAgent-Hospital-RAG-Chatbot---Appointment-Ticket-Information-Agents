@@ -13,12 +13,16 @@ from hospitai.infrastructure.db.models.enums import UserRole, enum_values
 
 class User(Base, TenantScopedMixin, TimestampMixin):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "email", name="uq_users_tenant_email"),
+        UniqueConstraint("tenant_id", "national_id", name="uq_users_tenant_national_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    national_id: Mapped[str | None] = mapped_column(String(11), nullable=True, index=True)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, native_enum=False, length=32, values_callable=enum_values),
         nullable=False,

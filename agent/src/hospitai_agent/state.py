@@ -35,6 +35,10 @@ class ChatState:
     guest_full_name: str = ""
     guest_phone: str = ""
     guest_email: str = ""
+    guest_national_id: str = ""
+
+    conversation_id: str = ""
+    verified_patient_user_id: str = ""
 
     web_context: str = ""
     web_used: bool = False

@@ -14,11 +14,14 @@ ListTicketsFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 GetTicketByReferenceFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 RetrieveFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
 CreateTicketFromMessageFn = Callable[[ChatState, str], Awaitable[dict[str, Any]]]
+VerifyPatientIdentityFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
+BookAppointmentFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
+CancelAppointmentFn = Callable[[ChatState], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)
 class ChatWorkflowTools:
-    """Async callables implemented in `hospitai` (DB, RAG, domain services)."""
+    """Async callables implemented in `hospitai` (DB, RAG, appointments)."""
 
     list_available_slots: ListSlotsFn
     list_user_appointments: ListUserAppointmentsFn
@@ -26,3 +29,6 @@ class ChatWorkflowTools:
     get_ticket_by_reference: GetTicketByReferenceFn
     retrieve_knowledge: RetrieveFn
     create_ticket_from_message: CreateTicketFromMessageFn
+    verify_patient_identity: VerifyPatientIdentityFn
+    book_appointment: BookAppointmentFn
+    cancel_appointment: CancelAppointmentFn

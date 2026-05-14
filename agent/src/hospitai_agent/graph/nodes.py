@@ -11,6 +11,9 @@ from hospitai_agent.graph.prompts import GENERAL_FALLBACK, SYSTEM_PROMPTS
 from hospitai_agent.graph.quality import is_smalltalk_message
 from hospitai_agent.graph.registry import get_workflow_tools
 from hospitai_agent.graph.routing import (
+    has_tc_kimlik_candidate,
+    wants_book_appointment,
+    wants_cancel_appointment,
     wants_complaint_ticket_list,
     wants_my_appointments_list,
     wants_new_complaint_ticket,
@@ -87,14 +90,35 @@ async def handle_appointment(state: GraphState) -> GraphState:
     msg = state["user_message"]
     wants_list = wants_my_appointments_list(msg)
     wants_slots = wants_slot_search(msg)
-    if not wants_list and not wants_slots:
+    wants_book = wants_book_appointment(msg)
+    wants_cancel = wants_cancel_appointment(msg)
+    has_tc = has_tc_kimlik_candidate(msg)
+
+    if not wants_book and not wants_list and not wants_slots and not wants_cancel:
         wants_slots = True
 
+    if has_tc and not (state.get("user_id") or "").strip():
+        vr = await get_workflow_tools().verify_patient_identity(cs)
+        state["tool_results"].append({"tool": "verify_patient_identity", "result": vr})
+        if vr.get("success") and vr.get("patient_user_id"):
+            state["verified_patient_user_id"] = str(vr["patient_user_id"])
+
+    if wants_cancel:
+        cs = graph_state_to_chat_state(state)
+        cancelled = await get_workflow_tools().cancel_appointment(cs)
+        state["tool_results"].append({"tool": "cancel_appointment", "result": cancelled})
+    elif wants_book:
+        cs = graph_state_to_chat_state(state)
+        booked = await get_workflow_tools().book_appointment(cs)
+        state["tool_results"].append({"tool": "book_appointment", "result": booked})
+
     if wants_list:
+        cs = graph_state_to_chat_state(state)
         listed = await get_workflow_tools().list_user_appointments(cs)
         state["tool_results"].append({"tool": "list_appointments", "result": listed})
 
-    if wants_slots:
+    if wants_slots and not wants_book and not wants_cancel:
+        cs = graph_state_to_chat_state(state)
         slotted = await get_workflow_tools().list_available_slots(cs)
         state["tool_results"].append({"tool": "list_available_slots", "result": slotted})
     return state
@@ -189,6 +213,24 @@ def format_tool_response(state: GraphState) -> str:
         elif tool_name == "create_ticket":
             parts.append(result.get("message", "Talep oluşturuldu."))
 
+        elif tool_name == "book_appointment":
+            um2 = result.get("user_message_tr")
+            if isinstance(um2, str) and um2.strip():
+                parts.append(um2.strip())
+            elif result.get("success"):
+                parts.append("Randevu isteği işlendi.")
+            else:
+                parts.append(str(result.get("error", "Randevu oluşturulamadı.")))
+
+        elif tool_name == "cancel_appointment":
+            um3 = result.get("user_message_tr")
+            if isinstance(um3, str) and um3.strip():
+                parts.append(um3.strip())
+            elif result.get("success"):
+                parts.append("İptal isteği işlendi.")
+            else:
+                parts.append(str(result.get("error", "İptal işlemi tamamlanamadı.")))
+
         else:
             parts.append(str(result))
 
@@ -207,7 +249,10 @@ async def generate_response(state: GraphState) -> GraphState:
         system_prompt += (
             "\n\nBu kullanıcı oturum açmadan yazıyor. Şikayet/talep oluşturma veya "
             "randevu gibi işlemlerde ad soyad ve telefon (tercihen e-posta) bilgisini iste; "
-            "kullanıcı bu bilgileri sohbette veya uygulamadaki iletişim alanına girebilir."
+            "kullanıcı bu bilgileri sohbette veya uygulamadaki iletişim alanına girebilir. "
+            "Randevu geçmişi veya yeni randevu için önce 11 haneli TC ve kayıtlı ad-soyad "
+            "ile doğrulama iste; doğrulama sonrası saatleri paylaş veya müsait slota göre "
+            "rezervasyon oluştur."
         )
 
     messages: list[Any] = [SystemMessage(content=system_prompt)]

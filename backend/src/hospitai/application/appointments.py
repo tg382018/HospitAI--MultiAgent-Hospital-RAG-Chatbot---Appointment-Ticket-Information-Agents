@@ -325,3 +325,31 @@ async def list_appointments_for_actor(
     stmt = stmt.order_by(Appointment.starts_at.desc()).limit(min(limit, 100))
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def find_active_doctor_by_name(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    name_substr: str,
+) -> tuple[Doctor | None, str]:
+    """Tek eşleşme varsa doktoru döner; yoksa (None, hata_kodu) — ``ambiguous`` veya ``not_found``."""
+    n = (name_substr or "").strip()
+    if len(n) < 2:
+        return None, "too_short"
+    stmt = (
+        select(Doctor)
+        .where(
+            Doctor.tenant_id == tenant_id,
+            Doctor.is_active.is_(True),
+            Doctor.full_name.ilike(f"%{n}%"),
+        )
+        .order_by(Doctor.full_name)
+        .limit(5)
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    if not rows:
+        return None, "not_found"
+    if len(rows) > 1:
+        return None, "ambiguous"
+    return rows[0], "ok"
