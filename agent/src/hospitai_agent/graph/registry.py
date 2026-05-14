@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hospitai_agent.workflow_tools import ChatWorkflowTools
+from hospitai_agent.tools.contracts import ChatWorkflowTools
 
 _workflow_tools: ChatWorkflowTools | None = None
 

@@ -7,7 +7,7 @@ import uuid
 import chromadb
 import structlog
 
-from hospitai_agent.rag_profile import get_rag_profile
+from hospitai_agent.rag.profile import get_rag_profile
 
 log = structlog.get_logger(__name__)
 

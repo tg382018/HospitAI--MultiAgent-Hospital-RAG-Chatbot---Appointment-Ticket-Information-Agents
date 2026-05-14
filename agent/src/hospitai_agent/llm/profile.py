@@ -24,7 +24,7 @@ def configure_llm_profile(profile: LLMProfile) -> None:
     """Called once from FastAPI lifespan with platform `Settings`."""
     global _profile
     _profile = profile
-    from hospitai_agent.llm_client import clear_llm_cache
+    from hospitai_agent.llm.client import clear_llm_cache
 
     clear_llm_cache()
 

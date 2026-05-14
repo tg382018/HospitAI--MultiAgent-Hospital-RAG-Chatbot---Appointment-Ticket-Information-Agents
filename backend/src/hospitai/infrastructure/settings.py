@@ -178,6 +178,25 @@ class Settings(BaseSettings):
         description="Max number of recent messages to include in context.",
     )
 
+    # ---- Chat rate & length limits ----
+    chat_max_messages_per_conversation: int = Field(
+        default=100,
+        validation_alias="CHAT_MAX_MESSAGES_PER_CONVERSATION",
+        description=(
+            "Hard limit on total messages (user + assistant) per conversation. "
+            "Prevents users from abusing AI limits in a single session."
+        ),
+    )
+    chat_rate_limit: str = Field(
+        default="60/minute",
+        validation_alias="CHAT_RATE_LIMIT",
+        description=(
+            "SlowAPI rate limit string per IP for chat endpoints "
+            "(e.g. '30/minute', '200/hour'). "
+            "Industry standard: ~1 msg/s for interactive chat."
+        ),
+    )
+
     # ---- Chunking ----
     chunk_size: int = Field(
         default=500,

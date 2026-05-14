@@ -6,8 +6,8 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from hospitai_agent.llm_client import get_llm
-from hospitai_agent.llm_profile import get_llm_profile
+from hospitai_agent.llm.client import get_llm
+from hospitai_agent.llm.profile import get_llm_profile
 from hospitai_agent.state import ChatState
 
 _EMERGENCY_KEYWORDS = re.compile(

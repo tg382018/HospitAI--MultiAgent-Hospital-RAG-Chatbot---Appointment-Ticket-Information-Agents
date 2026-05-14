@@ -42,6 +42,3 @@ class ChatState:
 
     web_context: str = ""
     web_used: bool = False
-    strict_grounding: bool = False
-    regen_count: int = 0
-    verify_should_retry: bool = False

@@ -14,7 +14,8 @@ from typing import Any
 import httpx
 import structlog
 from hospitai_agent.state import ChatState
-from hospitai_agent.workflow_tools import ChatWorkflowTools
+from sqlalchemy.orm import selectinload
+from hospitai_agent.tools.contracts import ChatWorkflowTools
 
 from hospitai.application import appointments as appt_svc
 from hospitai.application import patient_identity as pid
@@ -194,8 +195,18 @@ async def list_available_slots_tool(
 
 
 async def list_available_slots_for_graph(state: ChatState) -> dict[str, Any]:
-    """Graph entrypoint: parse ``user_message`` hints then delegate to slot listing."""
-    from hospitai_agent.slot_params import extract_slot_query_params
+    """Graph entrypoint: use LLM-extracted params (via llm_overrides) or fall back to
+    keyword parsing of user_message for backward compatibility."""
+    sp = (state.llm_overrides or {}).get("slot_params")
+    if isinstance(sp, dict):
+        return await list_available_slots_tool(
+            state,
+            department_name=str(sp.get("department_name") or ""),
+            doctor_name=str(sp.get("doctor_name") or ""),
+            target_date=str(sp.get("target_date") or ""),
+        )
+
+    from hospitai_agent.tools.slot_params import extract_slot_query_params
 
     p = extract_slot_query_params(state.user_message)
     return await list_available_slots_tool(
@@ -261,16 +272,66 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                 }
 
         eff = _effective_patient_user_id(state)
+        # Try phone-based lookup for guest users
+        if not eff:
+            phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+                state.guest_phone or ""
+            )
+            if phone:
+                candidate = await pid.find_patient_by_phone(
+                    session, tenant_id=tenant.id, phone_digits=phone
+                )
+                if candidate:
+                    eff = str(candidate.id)
+
         user = await _get_user(session, eff, tenant.id) if eff else None
+
+        # For guests without a user account, look up appointments by guest_contact
         if not user:
+            phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+                state.guest_phone or ""
+            )
+            if phone:
+                from sqlalchemy import select as sa_select
+
+                from hospitai.infrastructure.db.models.appointment import Appointment
+
+                stmt = (
+                    sa_select(Appointment)
+                    .where(
+                        Appointment.tenant_id == tenant.id,
+                        Appointment.guest_contact == phone,
+                        Appointment.status != appt_svc.AppointmentStatus.CANCELLED,
+                    )
+                    .options(selectinload(Appointment.doctor), selectinload(Appointment.department))
+                    .order_by(Appointment.starts_at.desc())
+                    .limit(20)
+                )
+                rows = list((await session.execute(stmt)).scalars().all())
+                if rows:
+                    return {
+                        "success": True,
+                        "appointments": _bridge_map_appointments(
+                            [
+                                {
+                                    "id": str(a.id),
+                                    "doctor_name": a.doctor.full_name if a.doctor else "N/A",
+                                    "department_name": a.department.name if a.department else "N/A",
+                                    "start_time": a.starts_at.isoformat() if a.starts_at else "",
+                                    "end_time": a.ends_at.isoformat() if a.ends_at else "",
+                                    "status": a.status.value if hasattr(a.status, "value") else str(a.status),
+                                }
+                                for a in rows
+                            ]
+                        ),
+                        "count": len(rows),
+                    }
             return {
                 "success": True,
                 "appointments": [],
                 "count": 0,
                 "user_message_tr": (
-                    "Randevularınızı göstermek için önce kayıtlı cep telefonunuzu ve sistemde "
-                    "kayıtlı ad-soyadınızı yazın (tercihen iletişim formundaki bilgilerle aynı). "
-                    "Doğrulama ardından randevu saatlerinizi paylaşabilirim."
+                    "Randevularınızı görmek için kayıtlı cep telefonunuzu yazın."
                 ),
             }
 
@@ -521,25 +582,24 @@ async def book_appointment_tool(
                     "user_message_tr": um or "Randevu işlemi tamamlanamadı.",
                 }
 
-        eff = _effective_patient_user_id(state)
-        if not eff:
-            return {
-                "success": False,
-                "user_message_tr": (
-                    "Randevu oluşturmak için önce kayıtlı cep telefonunuz ve ad-soyad ile "
-                    "doğrulama yapın veya hasta hesabınızla giriş yapın. "
-                    "Hastane köprüsü için ortam değişkenlerini tanımlayın."
-                ),
-            }
+        # Extract guest identity from message or state fields (set by agent tool executor)
+        guest_phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+            state.guest_phone or ""
+        )
+        guest_name = (
+            pid.extract_stated_full_name(state.user_message, state.guest_full_name) or ""
+        ).strip()
 
-        patient = await _get_user(session, eff, tenant.id)
-        if patient is None:
-            return {
-                "success": False,
-                "user_message_tr": (
-                    "Hasta kaydı bulunamadı; önce cep telefonu ve ad-soyad ile doğrulama yapın."
-                ),
-            }
+        # Try to find a registered patient for linked booking (optional, nice to have)
+        eff = _effective_patient_user_id(state)
+        if not eff and guest_phone:
+            candidate = await pid.find_patient_by_phone(
+                session, tenant_id=tenant.id, phone_digits=guest_phone
+            )
+            if candidate is not None:
+                eff = str(candidate.id)
+
+        patient = await _get_user(session, eff, tenant.id) if eff else None
 
         doc, dcode = await appt_svc.find_active_doctor_by_name(
             session, tenant_id=tenant.id, name_substr=dn
@@ -579,6 +639,10 @@ async def book_appointment_tool(
             if len(drows) == 1:
                 dept_id = drows[0].id
 
+        notes = "Chat üzerinden oluşturuldu"
+        if not patient and guest_name:
+            notes = f"Chat üzerinden oluşturuldu — Misafir: {guest_name}, Tel: {guest_phone or '—'}"
+
         try:
             appt = await appt_svc.create_appointment(
                 session,
@@ -588,8 +652,10 @@ async def book_appointment_tool(
                 starts_at=starts_at,
                 ends_at=ends_at,
                 department_id=dept_id,
-                notes="Chat üzerinden oluşturuldu",
+                notes=notes,
                 patient_user_id=None,
+                guest_display_name=guest_name or None,
+                guest_contact=guest_phone or None,
             )
         except DomainError as e:
             return {
@@ -599,18 +665,30 @@ async def book_appointment_tool(
 
         await session.commit()
         st = appt.starts_at.isoformat() if appt.starts_at else ""
+        display = doc.full_name
         return {
             "success": True,
             "appointment_id": str(appt.id),
             "user_message_tr": (
-                f"Randevunuz oluşturuldu. Doktor: {doc.full_name}. Başlangıç: {st}. "
+                f"Randevunuz oluşturuldu. Doktor: {display}. Başlangıç: {st}. "
                 "İptal veya değişiklik için randevu hattını arayabilirsiniz."
             ),
         }
 
 
 async def book_appointment_from_graph(state: ChatState) -> dict[str, Any]:
-    from hospitai_agent.slot_params import extract_slot_query_params
+    """Graph entrypoint: use LLM-extracted params (via llm_overrides) or fall back to
+    regex parsing of user_message for backward compatibility."""
+    bp = (state.llm_overrides or {}).get("book_params")
+    if isinstance(bp, dict) and bp.get("starts_at"):
+        return await book_appointment_tool(
+            state,
+            doctor_name=str(bp.get("doctor_name") or ""),
+            starts_at_iso=str(bp.get("starts_at") or ""),
+            department_name=str(bp.get("department_name") or ""),
+        )
+
+    from hospitai_agent.tools.slot_params import extract_slot_query_params
 
     msg = state.user_message
     p = extract_slot_query_params(msg)
@@ -655,50 +733,117 @@ async def book_appointment_from_graph(state: ChatState) -> dict[str, Any]:
 
 
 async def cancel_appointment_from_graph(state: ChatState) -> dict[str, Any]:
-    """Randevu iptali — yalnızca hastane köprüsü üzerinden."""
+    """Randevu iptali — köprü varsa oradan, yoksa yerel DB'den."""
     async with get_session_factory()() as session:
         tenant = await _get_tenant(session, state.tenant_slug)
         if not tenant:
             return {"success": False, "user_message_tr": "Hastane bulunamadı."}
-        if not hosp_bridge.bridge_is_configured(tenant):
-            return {
-                "success": False,
-                "user_message_tr": (
-                    "Randevu iptali için hastane entegrasyonu (HTTP veya RabbitMQ) "
-                    "tanımlanmalıdır; aksi halde randevu hattını arayın."
-                ),
-            }
 
-        b = _bridge_patient_identity(state)
-        if not _bridge_identity_ready(b):
-            return {
-                "success": False,
-                "user_message_tr": (
-                    "İptal için kayıtlı cep telefonunuz ve ad-soyadınızı yazın. "
-                    "Randevu kaydı varsa mesajda UUID veya hastane referansını da belirtin."
-                ),
-            }
+        # Bridge path
+        if hosp_bridge.bridge_is_configured(tenant):
+            b = _bridge_patient_identity(state)
+            if not _bridge_identity_ready(b):
+                return {
+                    "success": False,
+                    "user_message_tr": (
+                        "İptal için kayıtlı cep telefonunuz ve ad-soyadınızı yazın."
+                    ),
+                }
+            aid = hosp_bridge.extract_uuid_from_text(state.user_message)
+            br = await hosp_bridge.dispatch_hospital_bridge(
+                tenant_slug=state.tenant_slug,
+                tenant=tenant,
+                operation="appointments/cancel",
+                payload={
+                    **_bridge_identity_payload_fragment(b),
+                    "appointment_id": aid,
+                    "user_message": state.user_message[:4000],
+                    "conversation_id": (state.conversation_id or "").strip() or None,
+                },
+            )
+            if br is not None:
+                return {
+                    "success": bool(br.get("success")),
+                    "user_message_tr": (br.get("user_message_tr") or "").strip() or "İptal iletildi.",
+                }
 
-        aid = hosp_bridge.extract_uuid_from_text(state.user_message)
-        br = await hosp_bridge.dispatch_hospital_bridge(
-            tenant_slug=state.tenant_slug,
-            tenant=tenant,
-            operation="appointments/cancel",
-            payload={
-                **_bridge_identity_payload_fragment(b),
-                "appointment_id": aid,
-                "user_message": state.user_message[:4000],
-                "conversation_id": (state.conversation_id or "").strip() or None,
-            },
+        # Local DB path — find appointment by guest phone or registered user
+        from sqlalchemy import select as sa_select
+
+        from hospitai.infrastructure.db.models.appointment import Appointment
+        from hospitai.infrastructure.db.models.enums import AppointmentStatus
+
+        guest_phone = pid.extract_phone_from_text(state.user_message) or pid.normalize_tr_phone_digits(
+            state.guest_phone or ""
         )
-        if br is None:
+
+        # Try explicit UUID reference first
+        appt_id_str = hosp_bridge.extract_uuid_from_text(state.user_message)
+
+        eff = _effective_patient_user_id(state)
+        if not eff and guest_phone:
+            candidate = await pid.find_patient_by_phone(session, tenant_id=tenant.id, phone_digits=guest_phone)
+            if candidate:
+                eff = str(candidate.id)
+
+        appt = None
+        if appt_id_str:
+            try:
+                import uuid as _uuid
+                stmt = sa_select(Appointment).where(
+                    Appointment.tenant_id == tenant.id,
+                    Appointment.id == _uuid.UUID(appt_id_str),
+                )
+                appt = (await session.execute(stmt)).scalar_one_or_none()
+            except (ValueError, TypeError):
+                pass
+
+        if appt is None and guest_phone:
+            # Find upcoming appointment by guest phone
+            from datetime import UTC, datetime
+            stmt = (
+                sa_select(Appointment)
+                .where(
+                    Appointment.tenant_id == tenant.id,
+                    Appointment.guest_contact == guest_phone,
+                    Appointment.status != AppointmentStatus.CANCELLED,
+                    Appointment.starts_at >= datetime.now(UTC),
+                )
+                .order_by(Appointment.starts_at.asc())
+                .limit(1)
+            )
+            appt = (await session.execute(stmt)).scalar_one_or_none()
+
+        if appt is None and eff:
+            from datetime import UTC, datetime
+            stmt = (
+                sa_select(Appointment)
+                .where(
+                    Appointment.tenant_id == tenant.id,
+                    Appointment.patient_user_id == _uuid.UUID(eff),
+                    Appointment.status != AppointmentStatus.CANCELLED,
+                    Appointment.starts_at >= datetime.now(UTC),
+                )
+                .order_by(Appointment.starts_at.asc())
+                .limit(1)
+            )
+            appt = (await session.execute(stmt)).scalar_one_or_none()
+
+        if appt is None:
             return {
                 "success": False,
-                "user_message_tr": "Hastane köprüsü yapılandırılmadı.",
+                "user_message_tr": (
+                    "İptal edilecek aktif randevu bulunamadı. "
+                    "Cep telefonunuzu yazarak tekrar deneyin."
+                ),
             }
+
+        appt.status = AppointmentStatus.CANCELLED
+        await session.commit()
+        st = appt.starts_at.strftime("%d %B %Y %H:%M") if appt.starts_at else ""
         return {
-            "success": bool(br.get("success")),
-            "user_message_tr": (br.get("user_message_tr") or "").strip() or "İptal iletildi.",
+            "success": True,
+            "user_message_tr": f"Randevunuz iptal edildi. ({st})",
         }
 
 
@@ -972,7 +1117,7 @@ async def get_ticket_status_by_reference_tool(
 
 async def get_ticket_by_reference_for_graph(state: ChatState) -> dict[str, Any]:
     """Resolve TKT-… from ``user_message`` then delegate (complaint graph node)."""
-    from hospitai_agent.ticket_reference import extract_ticket_reference
+    from hospitai_agent.tools.ticket_reference import extract_ticket_reference
 
     ref = extract_ticket_reference(state.user_message)
     if not ref:
@@ -1022,12 +1167,56 @@ def _parse_complaint_for_ticket(message: str) -> tuple[str, str]:
 
 async def create_ticket_from_message_for_graph(state: ChatState, message: str) -> dict[str, Any]:
     subject, description = _parse_complaint_for_ticket(message)
+    # Extract identity from message into state if not already set
+    if not (state.guest_full_name or "").strip():
+        stated = pid.extract_stated_full_name(message, "")
+        if stated.strip():
+            import dataclasses
+            state = dataclasses.replace(state, guest_full_name=stated.strip())
+    if not (state.guest_phone or "").strip():
+        phone = pid.extract_phone_from_text(message)
+        if phone:
+            import dataclasses
+            state = dataclasses.replace(state, guest_phone=phone)
     return await create_ticket_tool(
         state,
         subject=subject,
         description=description,
         category="general",
     )
+
+
+async def close_ticket_tool(state: ChatState, reference: str) -> dict[str, Any]:
+    """Close (resolve) a support ticket by reference."""
+    ref = reference.strip()
+    if not ref:
+        return {
+            "success": False,
+            "user_message_tr": "Kapatmak istediğiniz talebin TKT referansını belirtin.",
+        }
+    async with get_session_factory()() as session:
+        tenant = await _get_tenant(session, state.tenant_slug)
+        if not tenant:
+            return {"success": False, "user_message_tr": "Hastane bulunamadı."}
+        user = await _get_user(session, state.user_id, tenant.id)
+        try:
+            from hospitai.application import tickets as ticket_svc
+            ticket = await ticket_svc.close_ticket(
+                session,
+                tenant_id=tenant.id,
+                reference=ref,
+                actor=user,
+            )
+            await session.commit()
+            return {
+                "success": True,
+                "user_message_tr": (
+                    f"Talebiniz ({ticket.reference}) kapatıldı. "
+                    "Farklı bir sorununuz olursa yeni talep oluşturabilirsiniz."
+                ),
+            }
+        except DomainError as e:
+            return {"success": False, "user_message_tr": e.message}
 
 
 async def retrieve_knowledge_tool(state: ChatState, query: str) -> dict[str, Any]:
@@ -1130,6 +1319,7 @@ def make_workflow_tools() -> ChatWorkflowTools:
         get_ticket_by_reference=get_ticket_by_reference_for_graph,
         retrieve_knowledge=retrieve_knowledge_tool,
         create_ticket_from_message=create_ticket_from_message_for_graph,
+        close_ticket=close_ticket_tool,
         verify_patient_identity=verify_patient_identity_tool,
         book_appointment=book_appointment_from_graph,
         cancel_appointment=cancel_appointment_from_graph,

@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from langchain_openai import ChatOpenAI
 
-from hospitai_agent.llm_profile import LLMProfile, get_llm_profile
+from hospitai_agent.llm.profile import LLMProfile, get_llm_profile
 
 
 @lru_cache

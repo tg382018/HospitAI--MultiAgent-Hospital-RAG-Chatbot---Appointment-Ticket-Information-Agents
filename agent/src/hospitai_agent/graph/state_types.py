@@ -8,19 +8,24 @@ from hospitai_agent.state import ChatState
 
 
 class GraphState(TypedDict):
+    # Core conversation
     user_message: str
     tenant_slug: str
     user_role: str
     user_id: str
-    intent: str
-    rag_context: str
-    rag_used: bool
-    tool_results: list[dict[str, Any]]
-    safety_flag: bool
-    safety_reason: str
     history: list[dict[str, str]]
     response: str
+
+    # Safety
+    safety_flag: bool
+    safety_reason: str
+
+    # Output metadata
+    intent: str
     sources: list[str]
+    rag_used: bool
+
+    # Guest / identity
     llm_overrides: dict[str, Any]
     guest_full_name: str
     guest_phone: str
@@ -28,11 +33,17 @@ class GraphState(TypedDict):
     guest_national_id: str
     conversation_id: str
     verified_patient_user_id: str
+
+    # Tool call loop (agent architecture)
+    pending_tool_calls: list[dict[str, Any]]  # LLM-requested, not yet executed
+    tool_results: list[dict[str, Any]]         # executed tool results (for audit/logging)
+    llm_messages: list[Any]                    # full LangChain messages for current turn
+    loop_count: int                            # guard against infinite tool loops
+
+    # RAG (used by search_hospital_info tool)
+    rag_context: str
     web_context: str
     web_used: bool
-    strict_grounding: bool
-    regen_count: int
-    verify_should_retry: bool
 
 
 def chat_state_to_graph_state(cs: ChatState) -> GraphState:
@@ -59,9 +70,10 @@ def chat_state_to_graph_state(cs: ChatState) -> GraphState:
         verified_patient_user_id=cs.verified_patient_user_id,
         web_context=cs.web_context,
         web_used=cs.web_used,
-        strict_grounding=cs.strict_grounding,
-        regen_count=cs.regen_count,
-        verify_should_retry=cs.verify_should_retry,
+        # agent-loop fields (not on ChatState — init defaults)
+        pending_tool_calls=[],
+        llm_messages=[],
+        loop_count=0,
     )
 
 
@@ -72,8 +84,8 @@ def graph_state_to_chat_state(gs: GraphState) -> ChatState:
         user_role=gs["user_role"],
         user_id=gs["user_id"],
         intent=gs["intent"],
-        rag_context=gs["rag_context"],
-        rag_used=gs["rag_used"],
+        rag_context=gs.get("rag_context") or "",
+        rag_used=gs.get("rag_used") or False,
         tool_results=gs["tool_results"],
         safety_flag=gs["safety_flag"],
         safety_reason=gs["safety_reason"],
@@ -89,7 +101,4 @@ def graph_state_to_chat_state(gs: GraphState) -> ChatState:
         verified_patient_user_id=str(gs.get("verified_patient_user_id") or ""),
         web_context=gs.get("web_context") or "",
         web_used=bool(gs.get("web_used")),
-        strict_grounding=bool(gs.get("strict_grounding")),
-        regen_count=int(gs.get("regen_count") or 0),
-        verify_should_retry=bool(gs.get("verify_should_retry")),
     )

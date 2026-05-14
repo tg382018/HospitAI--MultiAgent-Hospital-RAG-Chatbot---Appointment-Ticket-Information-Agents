@@ -17,9 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from hospitai.api.deps import OptionalUser, SettingsDep
 from hospitai.api.errors import AppError
+from hospitai.api.limiter import limiter
 from hospitai.api.schemas.chat import ChatRequest, ChatResponse
 from hospitai.application.audit import write_audit_log
 from hospitai.application.chat import iter_chat_sse, run_chat
+from hospitai.application.chat.limits import check_conversation_limit
 from hospitai.application.chat.memory import (
     get_or_create_conversation,
     load_memory,
@@ -162,6 +164,7 @@ async def _save_assistant_and_maybe_audit(
 
 
 @router.post("", response_model=ChatResponse)
+@limiter.limit("60/minute")
 async def chat(
     request: Request,
     body: ChatRequest,
@@ -193,6 +196,24 @@ async def chat(
         guest_src = _guest_from_conv(conv)
         gn, gp, ge, gid = _guest_dict_to_state_fields(guest_src)
         vu = _patient_verification_user_id(conv) if user is None else ""
+
+        limit_err = await check_conversation_limit(
+            session,
+            conversation_id=conv.id,
+            tenant_id=tenant_id,
+            max_messages=settings.chat_max_messages_per_conversation,
+        )
+        if limit_err:
+            return ChatResponse(
+                conversation_id=conv.id,
+                message=limit_err,
+                intent="limit_reached",
+                sources=[],
+                rag_used=False,
+                escalated=False,
+                safety_flag=False,
+                safety_reason="",
+            )
 
         cs = ChatState(
             user_message=body.message,
@@ -270,6 +291,7 @@ async def chat(
 
 
 @router.post("/stream")
+@limiter.limit("60/minute")
 async def chat_stream(
     request: Request,
     body: ChatRequest,
@@ -278,6 +300,7 @@ async def chat_stream(
     x_tenant_slug: Annotated[str | None, Header(alias="X-Tenant-Slug")] = None,
 ) -> StreamingResponse:
     """SSE: ``meta`` (conversation id), ``token`` chunks, ``final`` (assistant payload)."""
+    limit_err: str | None = None
     try:
         async with get_session_factory()() as session:
             _, tenant_id, tenant_slug = await _resolve_tenant_for_chat(
@@ -298,6 +321,13 @@ async def chat_stream(
             guest_src = _guest_from_conv(conv)
             gn, gp, ge, gid = _guest_dict_to_state_fields(guest_src)
             vu = _patient_verification_user_id(conv) if user is None else ""
+
+            limit_err = await check_conversation_limit(
+                session,
+                conversation_id=conv.id,
+                tenant_id=tenant_id,
+                max_messages=settings.chat_max_messages_per_conversation,
+            )
 
             cs = ChatState(
                 user_message=body.message,
@@ -361,6 +391,20 @@ async def chat_stream(
     async def event_gen():
         meta = json.dumps({"conversation_id": str(conv.id)}, ensure_ascii=False)
         yield f"event: meta\ndata: {meta}\n\n"
+
+        if limit_err:
+            final_payload = {
+                "response": limit_err,
+                "intent": "limit_reached",
+                "sources": [],
+                "rag_used": False,
+                "escalated": False,
+                "safety_flag": False,
+                "safety_reason": "",
+            }
+            yield f"event: final\ndata: {json.dumps(final_payload, ensure_ascii=False)}\n\n"
+            return
+
         try:
             async for raw in iter_chat_sse(
                 user_message=body.message,

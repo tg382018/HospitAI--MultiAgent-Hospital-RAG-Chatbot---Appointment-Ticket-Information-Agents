@@ -51,9 +51,9 @@ async def run_chat(
         verified_patient_user_id=verified_patient_user_id,
         web_context="",
         web_used=False,
-        strict_grounding=False,
-        regen_count=0,
-        verify_should_retry=False,
+        pending_tool_calls=[],
+        llm_messages=[],
+        loop_count=0,
     )
 
     final_state = await graph.ainvoke(initial_state)
@@ -100,9 +100,9 @@ async def iter_chat_sse(
         verified_patient_user_id=verified_patient_user_id,
         web_context="",
         web_used=False,
-        strict_grounding=False,
-        regen_count=0,
-        verify_should_retry=False,
+        pending_tool_calls=[],
+        llm_messages=[],
+        loop_count=0,
     )
     acc: dict[str, Any] = dict(initial_state)
     async for mode, chunk in graph.astream(initial_state, stream_mode=["custom", "updates"]):

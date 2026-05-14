@@ -7,8 +7,8 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from hospitai_agent.llm_client import get_llm
-from hospitai_agent.llm_profile import LLMProfile, get_llm_profile
+from hospitai_agent.llm.client import get_llm
+from hospitai_agent.llm.profile import LLMProfile, get_llm_profile
 from hospitai_agent.state import ChatState
 
 _INTENT_SYSTEM_PROMPT = """\
@@ -22,6 +22,15 @@ Classify the user message into exactly ONE of these intents:
 
 Reply with ONLY a JSON object: {"intent": "<intent>", "confidence": 0.0-1.0}
 No explanation. No markdown. Just the JSON."""
+
+_IDENTITY_PATTERN = re.compile(
+    # TR mobile: 05xx / +90 5xx / bare 5xx (10 digits) — user providing identity for booking
+    r"(?:(?:\+90|0090|0)\s*)?5\d{2}[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2}\b"
+    r"|5\d{9}\b"
+    # TC kimlik: 11-digit number
+    r"|\b[1-9]\d{10}\b",
+    re.IGNORECASE,
+)
 
 _KEYWORD_MAP: list[tuple[str, re.Pattern[str]]] = [
     (
@@ -66,6 +75,10 @@ def keyword_classify(text: str) -> str | None:
     matches = [intent for intent, pattern in _KEYWORD_MAP if pattern.search(text)]
     if len(matches) == 1:
         return matches[0]
+    if not matches and _IDENTITY_PATTERN.search(text):
+        # User is supplying a phone number or TC kimlik — they are almost certainly
+        # continuing an appointment or identity-verification flow.
+        return "appointment"
     return None
 
 

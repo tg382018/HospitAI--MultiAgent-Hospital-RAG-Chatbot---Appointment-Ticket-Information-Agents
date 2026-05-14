@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from hospitai_agent.llm_profile import LLMProfile, merge_llm_profile
+from hospitai_agent.llm.profile import LLMProfile, merge_llm_profile
 
 from hospitai.application.tenant_agent_llm import (
     AGENT_LLM_MODEL_KEY,

@@ -56,7 +56,7 @@ async def get_ticket_by_reference(
     row = await session.execute(stmt)
     ticket = row.scalar_one_or_none()
     if ticket is None:
-        raise DomainError("ticket_not_found", "Ticket not found", 404)
+        raise DomainError("ticket_not_found", "Ticket not found", status_code=404)
     if actor is not None:
         if actor.role not in BOOK_FOR_OTHERS_ROLES and ticket.reporter_user_id != actor.id:
             raise DomainError("forbidden", "You can only view your own tickets", status_code=403)
@@ -67,6 +67,25 @@ async def get_ticket_by_reference(
             "Bu talebi görüntülemek için hesabınızla giriş yapmalısınız.",
             status_code=403,
         )
+    return ticket
+
+
+async def close_ticket(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    reference: str,
+    actor: User | None,
+) -> Ticket:
+    """Close (resolve) a ticket by reference. Guests can close tickets they own."""
+    ticket = await get_ticket_by_reference(
+        session, tenant_id=tenant_id, reference=reference, actor=actor
+    )
+    if ticket.status in (TicketStatus.CLOSED, TicketStatus.RESOLVED):
+        return ticket
+    ticket.status = TicketStatus.CLOSED
+    await session.flush()
+    await session.refresh(ticket)
     return ticket
 
 

@@ -83,7 +83,7 @@ async def get_or_create_conversation(
             return conv
 
     conv = Conversation(
-        id=uuid.uuid4(),
+        id=conversation_id or uuid.uuid4(),
         tenant_id=tenant_id,
         user_id=user_id,
         channel="web",

@@ -8,8 +8,8 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from hospitai_agent.graph import configure_workflow_tools
-from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
-from hospitai_agent.rag_profile import RagInfrastructureProfile, configure_rag_profile
+from hospitai_agent.llm.profile import LLMProfile, configure_llm_profile
+from hospitai_agent.rag.profile import RagInfrastructureProfile, configure_rag_profile
 
 from hospitai.api.errors import register_exception_handlers
 from hospitai.api.limiter import limiter

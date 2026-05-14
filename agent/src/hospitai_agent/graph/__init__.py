@@ -1,4 +1,4 @@
-"""LangGraph chat workflow package (intent → route → tools → RAG → LLM → safety)."""
+"""LangGraph chat workflow package — tool-augmented agent architecture."""
 
 from __future__ import annotations
 

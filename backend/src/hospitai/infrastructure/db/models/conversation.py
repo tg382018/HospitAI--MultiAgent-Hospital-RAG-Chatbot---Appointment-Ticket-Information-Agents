@@ -66,5 +66,5 @@ class ConversationMessage(Base, TenantScopedMixin, TimestampMixin):
     tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    tenant = relationship("Tenant")
-    conversation = relationship("Conversation", back_populates="messages")
+    tenant = relationship("Tenant", overlaps="messages,conversation")
+    conversation = relationship("Conversation", back_populates="messages", overlaps="tenant")

@@ -24,8 +24,8 @@ def configure_rag_profile(profile: RagInfrastructureProfile) -> None:
     """Called from FastAPI lifespan with platform `Settings` RAG-related fields."""
     global _profile
     _profile = profile
-    from hospitai_agent.embeddings import reset_embedding_client
-    from hospitai_agent.vector_db import reset_chroma_client
+    from hospitai_agent.rag.embeddings import reset_embedding_client
+    from hospitai_agent.rag.vector_db import reset_chroma_client
 
     reset_chroma_client()
     reset_embedding_client()

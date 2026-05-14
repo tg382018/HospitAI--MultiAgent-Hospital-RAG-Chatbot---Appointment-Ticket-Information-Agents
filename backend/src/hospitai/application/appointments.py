@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,14 @@ from hospitai.infrastructure.db.models.user import User
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+_TR_MAP = str.maketrans("şçğıöüŞÇĞİÖÜ", "scgiouSCGIOU")
+
+
+def _ascii_normalize(text: str) -> str:
+    """Normalize Turkish chars to ASCII equivalents for fuzzy DB matching."""
+    mapped = text.translate(_TR_MAP)
+    return unicodedata.normalize("NFKD", mapped).encode("ascii", "ignore").decode()
 
 
 def utc_day_bounds(d: date) -> tuple[datetime, datetime]:
@@ -72,7 +81,7 @@ async def get_doctor_in_tenant(
     row = await session.execute(stmt)
     doctor = row.scalar_one_or_none()
     if doctor is None:
-        raise DomainError("doctor_not_found", "Doctor not found or inactive in this hospital", 404)
+        raise DomainError("doctor_not_found", "Doctor not found or inactive in this hospital", status_code=404)
     return doctor
 
 
@@ -136,7 +145,18 @@ async def list_available_slots_for_chat(
     )
     dn = (doctor_name or "").strip()
     if dn:
-        stmt = stmt.where(Doctor.full_name.ilike(f"%{dn}%"))
+        import re as _re2
+        dn_bare = _re2.sub(r"^[Dd][Rr]\.?\s*", "", dn).strip()
+        dn_norm = _ascii_normalize(dn_bare).lower()
+        from sqlalchemy import func as sa_func
+        col_norm = sa_func.lower(
+            sa_func.translate(
+                sa_func.regexp_replace(Doctor.full_name, r"^Dr\.?\s*", "", "i"),
+                "şçğıöüŞÇĞİÖÜ",
+                "scgiouSCGIOU",
+            )
+        )
+        stmt = stmt.where(col_norm.ilike(f"%{dn_norm}%"))
     dep_q = (department_name or "").strip()
     if dep_q:
         pattern = f"%{dep_q}%"
@@ -201,25 +221,27 @@ async def ensure_patient_in_tenant(
     )
     row = await session.execute(stmt)
     if row.scalar_one_or_none() is None:
-        raise DomainError("patient_not_found", "Patient user not found in this hospital", 404)
+        raise DomainError("patient_not_found", "Patient user not found in this hospital", status_code=404)
 
 
 async def create_appointment(
     session: AsyncSession,
     *,
     tenant_id: uuid.UUID,
-    actor: User,
+    actor: User | None,
     doctor_id: uuid.UUID,
     starts_at: datetime,
     ends_at: datetime,
     department_id: uuid.UUID | None,
     notes: str | None,
     patient_user_id: uuid.UUID | None,
+    guest_display_name: str | None = None,
+    guest_contact: str | None = None,
 ) -> Appointment:
     if starts_at.tzinfo is None or ends_at.tzinfo is None:
-        raise DomainError("invalid_time", "starts_at and ends_at must be timezone-aware (UTC)", 400)
+        raise DomainError("invalid_time", "starts_at and ends_at must be timezone-aware (UTC)", status_code=400)
     if ends_at <= starts_at:
-        raise DomainError("invalid_range", "ends_at must be after starts_at", 400)
+        raise DomainError("invalid_range", "ends_at must be after starts_at", status_code=400)
 
     await get_doctor_in_tenant(session, tenant_id=tenant_id, doctor_id=doctor_id)
 
@@ -233,10 +255,18 @@ async def create_appointment(
         )
         drow = await session.execute(dstmt)
         if drow.scalar_one_or_none() is None:
-            raise DomainError("department_not_found", "Department not found in this hospital", 404)
+            raise DomainError("department_not_found", "Department not found in this hospital", status_code=404)
 
-    patient_id = await _resolve_patient_user_id(actor=actor, patient_user_id=patient_user_id)
-    await ensure_patient_in_tenant(session, tenant_id=tenant_id, patient_user_id=patient_id)
+    # Resolve patient_user_id for authenticated users
+    resolved_patient_id: uuid.UUID | None = None
+    if actor is not None:
+        resolved_patient_id = await _resolve_patient_user_id(
+            actor=actor, patient_user_id=patient_user_id
+        )
+        await ensure_patient_in_tenant(
+            session, tenant_id=tenant_id, patient_user_id=resolved_patient_id
+        )
+    # Guest booking: patient_user_id stays NULL; identity stored in guest_* fields
 
     overlap = await session.execute(
         select(Appointment.id).where(
@@ -248,17 +278,19 @@ async def create_appointment(
         )
     )
     if overlap.scalar_one_or_none() is not None:
-        raise DomainError("slot_unavailable", "This time overlaps an existing appointment", 409)
+        raise DomainError("slot_unavailable", "Bu saat için başka bir randevu mevcut; lütfen başka bir saat seçin.", status_code=409)
 
     appt = Appointment(
         tenant_id=tenant_id,
-        patient_user_id=patient_id,
+        patient_user_id=resolved_patient_id,
         doctor_id=doctor_id,
         department_id=department_id,
         starts_at=starts_at,
         ends_at=ends_at,
         status=AppointmentStatus.CONFIRMED,
         notes=notes,
+        guest_display_name=guest_display_name or None,
+        guest_contact=guest_contact or None,
     )
     session.add(appt)
     await session.flush()
@@ -279,7 +311,7 @@ async def get_appointment_in_tenant(
     row = await session.execute(stmt)
     appt = row.scalar_one_or_none()
     if appt is None:
-        raise DomainError("appointment_not_found", "Appointment not found", 404)
+        raise DomainError("appointment_not_found", "Appointment not found", status_code=404)
     return appt
 
 
@@ -334,15 +366,28 @@ async def find_active_doctor_by_name(
     name_substr: str,
 ) -> tuple[Doctor | None, str]:
     """Tek eşleşme varsa doktoru döner; yoksa (None, hata_kodu) — ``ambiguous`` veya ``not_found``."""
+    import re as _re
     n = (name_substr or "").strip()
+    # Strip "Dr." / "Dr " prefix so "Dr Ayse" and "Dr. Ayşe" both resolve correctly
+    n = _re.sub(r"^[Dd][Rr]\.?\s*", "", n).strip()
     if len(n) < 2:
         return None, "too_short"
+    n_norm = _ascii_normalize(n).lower()
+    from sqlalchemy import func as sa_func
+    # Normalize DB column: remove Turkish chars + strip "Dr. " prefix via translate, then lower
+    col_norm = sa_func.lower(
+        sa_func.translate(
+            sa_func.regexp_replace(Doctor.full_name, r"^Dr\.?\s*", "", "i"),
+            "şçğıöüŞÇĞİÖÜ",
+            "scgiouSCGIOU",
+        )
+    )
     stmt = (
         select(Doctor)
         .where(
             Doctor.tenant_id == tenant_id,
             Doctor.is_active.is_(True),
-            Doctor.full_name.ilike(f"%{n}%"),
+            col_norm.ilike(f"%{n_norm}%"),
         )
         .order_by(Doctor.full_name)
         .limit(5)

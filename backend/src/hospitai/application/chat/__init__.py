@@ -9,7 +9,7 @@ from hospitai_agent.graph import (
     iter_chat_sse,
     run_chat,
 )
-from hospitai_agent.workflow_tools import ChatWorkflowTools
+from hospitai_agent.tools.contracts import ChatWorkflowTools
 
 __all__ = [
     "ChatWorkflowTools",

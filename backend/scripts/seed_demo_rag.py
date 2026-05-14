@@ -63,8 +63,8 @@ DEMO_KB_MARKDOWN = """
 
 
 async def _run() -> None:
-    from hospitai_agent.llm_profile import LLMProfile, configure_llm_profile
-    from hospitai_agent.rag_profile import RagInfrastructureProfile, configure_rag_profile
+    from hospitai_agent.llm.profile import LLMProfile, configure_llm_profile
+    from hospitai_agent.rag.profile import RagInfrastructureProfile, configure_rag_profile
     from sqlalchemy import select
 
     from hospitai.application import rag as rag_svc
