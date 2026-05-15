@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +27,7 @@ from hospitai.api.schemas.admin_tenant import (
     TenantPolicyPatch,
     TenantPolicyPublic,
 )
+from hospitai.api.schemas.chat_branding import ChatBrandingPatch, ChatBrandingPublic
 from hospitai.application import appointments as appt_svc
 from hospitai.application.errors import DomainError
 from hospitai.application.tenant_admin import (
@@ -34,7 +35,28 @@ from hospitai.application.tenant_admin import (
     apply_agent_llm_settings_patch,
     get_tenant_for_admin,
     list_tenant_users,
+    patch_tenant_branding,
     patch_tenant_policy,
+)
+from hospitai.application.tenant_branding import (
+    CHAT_FAVICON_FILE_KEY,
+    CHAT_HEADER_BACKGROUND_KEY,
+    CHAT_LOGO_FILE_KEY,
+    CHAT_QUICK_ACTIONS_KEY,
+    CHAT_WELCOME_SUBTITLE_KEY,
+    CHAT_WELCOME_TITLE_KEY,
+    validate_header_background,
+    validate_quick_actions,
+    validate_welcome_text,
+)
+from hospitai.infrastructure.tenant_assets import (
+    branding_public_response,
+    delete_tenant_favicon,
+    delete_tenant_logo,
+    save_tenant_favicon,
+    save_tenant_logo,
+    validate_favicon_upload,
+    validate_logo_upload,
 )
 from hospitai.application.tenant_agent_llm import (
     TenantAgentLLMPatch,
@@ -278,6 +300,154 @@ async def patch_admin_user(
         await session.rollback()
         raise_from_domain(e)
     return AdminUserPublic.model_validate(updated)
+
+
+# ---- Chat UI branding ------------------------------------------------------
+
+
+@router.get("/chat-branding", response_model=ChatBrandingPublic)
+async def get_chat_branding(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
+
+
+@router.patch("/chat-branding", response_model=ChatBrandingPublic)
+async def patch_chat_branding(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    body: ChatBrandingPatch,
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    patch_raw = body.model_dump(exclude_unset=True)
+    branding_patch: dict[str, object] = {}
+    try:
+        if "header_background" in patch_raw and patch_raw["header_background"] is not None:
+            branding_patch[CHAT_HEADER_BACKGROUND_KEY] = validate_header_background(
+                patch_raw["header_background"]
+            )
+        if "welcome_title" in patch_raw and patch_raw["welcome_title"] is not None:
+            branding_patch[CHAT_WELCOME_TITLE_KEY] = validate_welcome_text(
+                patch_raw["welcome_title"], field="welcome_title", max_len=200
+            )
+        if "welcome_subtitle" in patch_raw and patch_raw["welcome_subtitle"] is not None:
+            branding_patch[CHAT_WELCOME_SUBTITLE_KEY] = validate_welcome_text(
+                patch_raw["welcome_subtitle"], field="welcome_subtitle", max_len=500
+            )
+        if "quick_actions" in patch_raw and patch_raw["quick_actions"] is not None:
+            branding_patch[CHAT_QUICK_ACTIONS_KEY] = validate_quick_actions(
+                patch_raw["quick_actions"]
+            )
+        if branding_patch:
+            await patch_tenant_branding(session, tenant=tenant, branding_patch=branding_patch)
+            await session.commit()
+            await session.refresh(tenant)
+    except ValueError as e:
+        await session.rollback()
+        raise_from_domain(DomainError("validation_error", str(e), status_code=422))
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
+
+
+@router.post("/chat-branding/logo", response_model=ChatBrandingPublic)
+async def upload_chat_logo(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    logo: UploadFile = File(...),
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    data = await logo.read()
+    try:
+        ext = validate_logo_upload(
+            filename=logo.filename,
+            content_type=logo.content_type,
+            size=len(data),
+        )
+        filename = save_tenant_logo(tenant, data=data, ext=ext)
+        await patch_tenant_branding(
+            session,
+            tenant=tenant,
+            branding_patch={CHAT_LOGO_FILE_KEY: filename},
+        )
+        await session.commit()
+        await session.refresh(tenant)
+    except ValueError as e:
+        await session.rollback()
+        raise_from_domain(DomainError("validation_error", str(e), status_code=422))
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
+
+
+@router.delete("/chat-branding/logo", response_model=ChatBrandingPublic)
+async def delete_chat_logo(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    delete_tenant_logo(tenant)
+    await patch_tenant_branding(
+        session,
+        tenant=tenant,
+        branding_patch={CHAT_LOGO_FILE_KEY: None},
+    )
+    await session.commit()
+    await session.refresh(tenant)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
+
+
+@router.post("/chat-branding/favicon", response_model=ChatBrandingPublic)
+async def upload_chat_favicon(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+    favicon: UploadFile = File(...),
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    data = await favicon.read()
+    try:
+        validate_favicon_upload(
+            filename=favicon.filename,
+            content_type=favicon.content_type,
+            size=len(data),
+            data=data,
+        )
+        filename = save_tenant_favicon(tenant, data=data)
+        await patch_tenant_branding(
+            session,
+            tenant=tenant,
+            branding_patch={CHAT_FAVICON_FILE_KEY: filename},
+        )
+        await session.commit()
+        await session.refresh(tenant)
+    except ValueError as e:
+        await session.rollback()
+        raise_from_domain(DomainError("validation_error", str(e), status_code=422))
+    except DomainError as e:
+        await session.rollback()
+        raise_from_domain(e)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
+
+
+@router.delete("/chat-branding/favicon", response_model=ChatBrandingPublic)
+async def delete_chat_favicon(
+    session: SessionDep,
+    user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
+) -> ChatBrandingPublic:
+    tenant = await get_tenant_for_admin(session, tenant_id=user.tenant_id)
+    delete_tenant_favicon(tenant)
+    await patch_tenant_branding(
+        session,
+        tenant=tenant,
+        branding_patch={CHAT_FAVICON_FILE_KEY: None},
+    )
+    await session.commit()
+    await session.refresh(tenant)
+    return ChatBrandingPublic.model_validate(branding_public_response(tenant))
 
 
 # ---- Tenant display name ---------------------------------------------------

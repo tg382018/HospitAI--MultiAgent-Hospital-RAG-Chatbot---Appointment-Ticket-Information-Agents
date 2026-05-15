@@ -13,6 +13,7 @@ from hospitai.application.tenant_agent_llm import (
     merge_agent_llm_settings,
     validate_agent_llm_patch,
 )
+from hospitai.application.tenant_branding import merge_branding_patch
 from hospitai.application.tenant_policy import merge_policy_patch
 from hospitai.infrastructure.db.models.enums import UserRole
 from hospitai.infrastructure.db.models.tenant import Tenant
@@ -125,6 +126,18 @@ async def patch_tenant_policy(
 ) -> Tenant:
     merged = merge_policy_patch(tenant.settings, policy_patch)
     tenant.settings = merged
+    await session.flush()
+    return tenant
+
+
+async def patch_tenant_branding(
+    session: AsyncSession,
+    *,
+    tenant: Tenant,
+    branding_patch: dict[str, object],
+) -> Tenant:
+    merged = merge_branding_patch(tenant.branding, branding_patch)
+    tenant.branding = merged
     await session.flush()
     return tenant
 

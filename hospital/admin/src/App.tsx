@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { apiFetch, formatApiError } from '@/lib/api';
+import { EmojiIconPicker } from '@/components/EmojiIconPicker';
+import { apiFetch, apiUpload, formatApiError } from '@/lib/api';
 import {
   authHeaders,
   canManageConnector,
@@ -89,7 +90,35 @@ type DaySlotRow = {
   block_id: string | null;
 };
 
-type TabId = 'dashboard' | 'appointments' | 'tickets' | 'doctors' | 'llm' | 'rag' | 'settings';
+type QuickActionChip = { icon: string; label: string };
+
+type ChatBranding = {
+  header_background: string;
+  welcome_title: string;
+  welcome_subtitle: string;
+  logo_url: string | null;
+  has_custom_logo: boolean;
+  favicon_url: string | null;
+  has_custom_favicon: boolean;
+  quick_actions: QuickActionChip[];
+};
+
+const DEFAULT_QUICK_ACTIONS: QuickActionChip[] = [
+  { icon: '📅', label: 'Randevu Al' },
+  { icon: '📋', label: 'Randevularım' },
+  { icon: '💬', label: 'Şikayet Bildir' },
+  { icon: '❓', label: 'Hastane Bilgisi' },
+];
+
+type TabId =
+  | 'dashboard'
+  | 'appointments'
+  | 'tickets'
+  | 'doctors'
+  | 'chat'
+  | 'llm'
+  | 'rag'
+  | 'settings';
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const STATUS_COLORS: Record<string, string> = {
@@ -142,6 +171,8 @@ function SectionCard({
 const TENANT_SLUG = (import.meta.env.VITE_TENANT_SLUG as string | undefined) ?? 'demo-hospital';
 
 /* ─── Login ───────────────────────────────────────────────────────────────── */
+type AuthMode = 'login' | 'register';
+
 function LoginForm({
   onSuccess,
   hospitalName,
@@ -149,8 +180,10 @@ function LoginForm({
   onSuccess: (access: string, me: Me) => void;
   hospitalName: string;
 }) {
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registrationKey, setRegistrationKey] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -159,9 +192,19 @@ function LoginForm({
     setErr(null);
     setLoading(true);
     try {
-      const tokens = await apiFetch<TokenResponse>('/api/v1/auth/login', {
+      const path = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register-admin';
+      const json =
+        mode === 'login'
+          ? { tenant_slug: TENANT_SLUG, email: email.trim(), password }
+          : {
+              tenant_slug: TENANT_SLUG,
+              email: email.trim(),
+              password,
+              key: registrationKey,
+            };
+      const tokens = await apiFetch<TokenResponse>(path, {
         method: 'POST',
-        json: { tenant_slug: TENANT_SLUG, email: email.trim(), password },
+        json,
       });
       const me = await fetchMe(tokens.access_token);
       onSuccess(tokens.access_token, me);
@@ -199,6 +242,38 @@ function LoginForm({
             <p className="text-xs text-slate-500">HospitAI Admin Paneli</p>
           </div>
         </div>
+
+        <div className="flex rounded-lg border border-slate-200 p-0.5 text-sm font-medium">
+          <button
+            type="button"
+            onClick={() => {
+              setMode('login');
+              setErr(null);
+            }}
+            className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
+              mode === 'login'
+                ? 'bg-sky-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Giriş
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('register');
+              setErr(null);
+            }}
+            className={`flex-1 rounded-md px-3 py-1.5 transition-colors ${
+              mode === 'register'
+                ? 'bg-sky-500 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            Kayıt ol
+          </button>
+        </div>
+
         {err && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {err}
@@ -219,7 +294,7 @@ function LoginForm({
           Şifre
           <input
             type="password"
-            autoComplete="current-password"
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             required
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             value={password}
@@ -227,12 +302,32 @@ function LoginForm({
             minLength={8}
           />
         </label>
+        {mode === 'register' && (
+          <label className="block text-sm font-medium text-slate-700">
+            Kayıt anahtarı
+            <input
+              type="password"
+              autoComplete="off"
+              required
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              value={registrationKey}
+              onChange={(e) => setRegistrationKey(e.target.value)}
+              placeholder="ADMIN_REGISTRATION_KEY"
+            />
+          </label>
+        )}
         <button
           type="submit"
           disabled={loading}
           className="w-full rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60 transition-opacity"
         >
-          {loading ? 'Giriş yapılıyor…' : 'Giriş Yap'}
+          {loading
+            ? mode === 'login'
+              ? 'Giriş yapılıyor…'
+              : 'Kayıt yapılıyor…'
+            : mode === 'login'
+              ? 'Giriş Yap'
+              : 'Kayıt Ol'}
         </button>
       </form>
     </div>
@@ -305,6 +400,24 @@ export default function App() {
   const [hospitalName, setHospitalName] = useState('Hospital');
   const [hospitalNameInput, setHospitalNameInput] = useState('');
   const [hospitalNameMsg, setHospitalNameMsg] = useState<string | null>(null);
+
+  // Chat görünümü (branding)
+  const [chatHeaderBg, setChatHeaderBg] = useState(
+    'linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)'
+  );
+  const [chatWelcomeTitle, setChatWelcomeTitle] = useState('Merhaba! 👋');
+  const [chatWelcomeSubtitle, setChatWelcomeSubtitle] = useState(
+    'Size nasıl yardımcı olabilirim? Randevu almak, randevularınızı sorgulamak veya bir şikayetinizi iletmek için aşağıdan başlayabilirsiniz.'
+  );
+  const [chatLogoUrl, setChatLogoUrl] = useState<string | null>(null);
+  const [chatBrandingMsg, setChatBrandingMsg] = useState<string | null>(null);
+  const [chatBrandingErr, setChatBrandingErr] = useState<string | null>(null);
+  const [chatLogoUploading, setChatLogoUploading] = useState(false);
+  const [chatFaviconUrl, setChatFaviconUrl] = useState<string | null>(null);
+  const [chatFaviconUploading, setChatFaviconUploading] = useState(false);
+  const [chatQuickActions, setChatQuickActions] = useState<QuickActionChip[]>(() =>
+    DEFAULT_QUICK_ACTIONS.map((c) => ({ ...c }))
+  );
 
   // Giriş öncesi: public tenant adı (LoginForm prop'u; accessToken yokken çalışır)
   useEffect(() => {
@@ -464,6 +577,26 @@ export default function App() {
     }
   }, [token, role]);
 
+  const loadChatBranding = useCallback(async () => {
+    if (!token || !canTenantAdmin(role)) return;
+    try {
+      const b = await apiFetch<ChatBranding>('/api/v1/admin/chat-branding', {
+        headers: authHeaders(token),
+      });
+      setChatHeaderBg(b.header_background);
+      setChatWelcomeTitle(b.welcome_title);
+      setChatWelcomeSubtitle(b.welcome_subtitle);
+      setChatLogoUrl(b.logo_url);
+      setChatFaviconUrl(b.favicon_url);
+      setChatQuickActions(
+        b.quick_actions?.length ? b.quick_actions.map((c) => ({ ...c })) : DEFAULT_QUICK_ACTIONS
+      );
+      setChatBrandingErr(null);
+    } catch (e) {
+      setChatBrandingErr(formatApiError(e));
+    }
+  }, [token, role]);
+
   const loadTenantAgentLlm = useCallback(async () => {
     if (!token || !canTenantAdmin(role)) return;
     try {
@@ -492,6 +625,7 @@ export default function App() {
       void loadAdminUsers();
       void loadTenantPolicy();
       void loadTenantAgentLlm();
+      void loadChatBranding();
     }
   }, [
     token,
@@ -503,6 +637,7 @@ export default function App() {
     loadAdminUsers,
     loadTenantPolicy,
     loadTenantAgentLlm,
+    loadChatBranding,
     loadHospitalName,
     loadDoctors,
   ]);
@@ -832,6 +967,116 @@ export default function App() {
     }
   }
 
+  async function saveChatBranding() {
+    if (!token) return;
+    setChatBrandingMsg(null);
+    setChatBrandingErr(null);
+    const actions = chatQuickActions
+      .map((c) => ({ icon: c.icon.trim(), label: c.label.trim() }))
+      .filter((c) => c.label.length > 0);
+    if (!actions.length) {
+      setChatBrandingErr('En az bir hızlı aksiyon butonu gerekli.');
+      return;
+    }
+    try {
+      await apiFetch<ChatBranding>('/api/v1/admin/chat-branding', {
+        method: 'PATCH',
+        headers: authHeaders(token),
+        json: {
+          header_background: chatHeaderBg.trim(),
+          welcome_title: chatWelcomeTitle.trim(),
+          welcome_subtitle: chatWelcomeSubtitle.trim(),
+          quick_actions: actions,
+        },
+      });
+      setChatBrandingMsg('Chat görünümü kaydedildi.');
+    } catch (err) {
+      setChatBrandingErr(formatApiError(err));
+    }
+  }
+
+  async function onSaveChatBranding(e: React.FormEvent) {
+    e.preventDefault();
+    await saveChatBranding();
+  }
+
+  async function onUploadChatLogo(file: File) {
+    if (!token) return;
+    setChatBrandingMsg(null);
+    setChatBrandingErr(null);
+    setChatLogoUploading(true);
+    try {
+      const form = new FormData();
+      form.append('logo', file);
+      const b = await apiUpload<ChatBranding>('/api/v1/admin/chat-branding/logo', form, token);
+      setChatLogoUrl(b.logo_url);
+      setChatBrandingMsg('Logo yüklendi.');
+    } catch (err) {
+      setChatBrandingErr(formatApiError(err));
+    } finally {
+      setChatLogoUploading(false);
+    }
+  }
+
+  async function onRemoveChatLogo() {
+    if (!token) return;
+    setChatBrandingMsg(null);
+    setChatBrandingErr(null);
+    try {
+      const b = await apiFetch<ChatBranding>('/api/v1/admin/chat-branding/logo', {
+        method: 'DELETE',
+        headers: authHeaders(token),
+      });
+      setChatLogoUrl(b.logo_url);
+      setChatBrandingMsg('Logo kaldırıldı.');
+    } catch (err) {
+      setChatBrandingErr(formatApiError(err));
+    }
+  }
+
+  async function onUploadChatFavicon(file: File) {
+    if (!token) return;
+    if (!file.name.toLowerCase().endsWith('.ico')) {
+      setChatBrandingErr('Favicon yalnızca .ico dosyası olabilir.');
+      return;
+    }
+    setChatBrandingMsg(null);
+    setChatBrandingErr(null);
+    setChatFaviconUploading(true);
+    try {
+      const form = new FormData();
+      form.append('favicon', file);
+      const b = await apiUpload<ChatBranding>('/api/v1/admin/chat-branding/favicon', form, token);
+      setChatFaviconUrl(b.favicon_url);
+      setChatBrandingMsg('Favicon yüklendi.');
+    } catch (err) {
+      setChatBrandingErr(formatApiError(err));
+    } finally {
+      setChatFaviconUploading(false);
+    }
+  }
+
+  async function onRemoveChatFavicon() {
+    if (!token) return;
+    setChatBrandingMsg(null);
+    setChatBrandingErr(null);
+    try {
+      const b = await apiFetch<ChatBranding>('/api/v1/admin/chat-branding/favicon', {
+        method: 'DELETE',
+        headers: authHeaders(token),
+      });
+      setChatFaviconUrl(b.favicon_url);
+      setChatBrandingMsg('Favicon kaldırıldı.');
+    } catch (err) {
+      setChatBrandingErr(formatApiError(err));
+    }
+  }
+
+  function headerColorPickerValue(): string {
+    const m = /^#([0-9a-fA-F]{6})$/.exec(chatHeaderBg.trim());
+    return m ? chatHeaderBg.trim() : '#0ea5e9';
+  }
+
   async function onPatchUser(userId: string, patch: { role?: UserRole; is_active?: boolean }) {
     if (!token || !canTenantAdmin(role)) return;
     try {
@@ -952,6 +1197,25 @@ export default function App() {
       ),
     },
     {
+      id: 'chat',
+      label: 'Chat Görünümü',
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+          />
+        </svg>
+      ),
+    },
+    {
       id: 'llm',
       label: 'LLM Ayarları',
       icon: (
@@ -1016,6 +1280,7 @@ export default function App() {
     appointments: 'Randevular',
     tickets: 'Şikayet / Talepler',
     doctors: 'Doktorlar',
+    chat: 'Chat Görünümü',
     llm: 'LLM Ayarları',
     rag: 'RAG / Dokümanlar',
     settings: 'Ayarlar',
@@ -1668,6 +1933,245 @@ export default function App() {
           )}
 
           {/* ══ LLM SETTINGS ══════════════════════════════════════════════════ */}
+          {activeTab === 'chat' && canTenantAdmin(role) && (
+            <div className="space-y-6 max-w-2xl">
+              <SectionCard title="Chat arayüzü özelleştirme">
+                <p className="mb-4 text-sm text-slate-500">
+                  Hasta chat sayfasındaki üst başlık, karşılama metinleri ve logo. Logo dosyaları
+                  sunucuda{' '}
+                  <code className="text-xs bg-slate-100 px-1 rounded">
+                    backend/data/tenant-assets/
+                  </code>{' '}
+                  altında saklanır (maks. 2 MB, PNG/JPEG/WebP).
+                </p>
+                {chatBrandingErr && <p className="mb-3 text-sm text-red-700">{chatBrandingErr}</p>}
+                {chatBrandingMsg && (
+                  <p className="mb-3 text-sm text-green-700">{chatBrandingMsg}</p>
+                )}
+
+                <form onSubmit={(e) => void onSaveChatBranding(e)} className="space-y-4">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Üst başlık arka planı
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <input
+                        type="color"
+                        value={headerColorPickerValue()}
+                        onChange={(e) => setChatHeaderBg(e.target.value)}
+                        className="h-10 w-14 cursor-pointer rounded border border-slate-300"
+                      />
+                      <input
+                        type="text"
+                        className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 font-mono"
+                        value={chatHeaderBg}
+                        onChange={(e) => setChatHeaderBg(e.target.value)}
+                        placeholder="#0ea5e9 veya linear-gradient(...)"
+                      />
+                    </div>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      Renk seçici düz renk verir; gradient için sağdaki alana CSS yazın.
+                    </span>
+                  </label>
+
+                  <label className="block text-sm font-medium text-slate-700">
+                    Karşılama başlığı
+                    <input
+                      required
+                      maxLength={200}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+                      value={chatWelcomeTitle}
+                      onChange={(e) => setChatWelcomeTitle(e.target.value)}
+                    />
+                  </label>
+
+                  <label className="block text-sm font-medium text-slate-700">
+                    Karşılama metni
+                    <textarea
+                      required
+                      maxLength={500}
+                      rows={4}
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+                      value={chatWelcomeSubtitle}
+                      onChange={(e) => setChatWelcomeSubtitle(e.target.value)}
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-5 py-2 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Kaydet
+                  </button>
+                </form>
+              </SectionCard>
+
+              <SectionCard title="Hızlı aksiyon butonları">
+                <p className="mb-4 text-sm text-slate-500">
+                  Chat karşılama ekranındaki kısayol butonları. Tıklanınca buton metni sohbete
+                  gönderilir (en fazla 8 adet).
+                </p>
+                <ul className="space-y-3">
+                  {chatQuickActions.map((chip, idx) => (
+                    <li
+                      key={idx}
+                      className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3"
+                    >
+                      <div className="block text-sm font-medium text-slate-700">
+                        İkon
+                        <EmojiIconPicker
+                          value={chip.icon}
+                          onChange={(icon) =>
+                            setChatQuickActions((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...r, icon } : r))
+                            )
+                          }
+                        />
+                      </div>
+                      <label className="block flex-1 min-w-[160px] text-sm font-medium text-slate-700">
+                        Metin
+                        <input
+                          required
+                          maxLength={80}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900"
+                          value={chip.label}
+                          onChange={(e) => {
+                            const label = e.target.value;
+                            setChatQuickActions((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...r, label } : r))
+                            );
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={chatQuickActions.length <= 1}
+                        onClick={() =>
+                          setChatQuickActions((rows) => rows.filter((_, i) => i !== idx))
+                        }
+                        className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        Sil
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={chatQuickActions.length >= 8}
+                    onClick={() =>
+                      setChatQuickActions((rows) => [...rows, { icon: '✨', label: 'Yeni buton' }])
+                    }
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-white disabled:opacity-40"
+                  >
+                    + Buton ekle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setChatQuickActions(DEFAULT_QUICK_ACTIONS.map((c) => ({ ...c })))
+                    }
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-white"
+                  >
+                    Varsayılana dön
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveChatBranding()}
+                    className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Butonları kaydet
+                  </button>
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Chat logosu">
+                <div className="flex flex-wrap items-start gap-6">
+                  <div className="w-24 h-24 rounded-2xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
+                    {chatLogoUrl ? (
+                      <img
+                        src={chatLogoUrl}
+                        alt="Logo önizleme"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs text-slate-400 text-center px-2">
+                        Varsayılan logo
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-3 flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Logo yükle
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        disabled={chatLogoUploading}
+                        className="mt-1 block w-full text-sm text-slate-600"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void onUploadChatLogo(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {chatLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => void onRemoveChatLogo()}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+                      >
+                        Logoyu kaldır
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </SectionCard>
+
+              <SectionCard title="Chat favicon">
+                <p className="mb-4 text-sm text-slate-500">
+                  Hasta chat sekmesinde görünen site ikonu. Yalnızca <strong>.ico</strong> dosyası
+                  (en fazla 256 KB).
+                </p>
+                <div className="flex flex-wrap items-start gap-6">
+                  <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                    {chatFaviconUrl ? (
+                      <img src={chatFaviconUrl} alt="Favicon önizleme" className="w-8 h-8" />
+                    ) : (
+                      <span className="text-[10px] text-slate-400 text-center px-1">
+                        Varsayılan
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-3 flex-1 min-w-[200px]">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Favicon yükle (.ico)
+                      <input
+                        type="file"
+                        accept=".ico,image/x-icon"
+                        disabled={chatFaviconUploading}
+                        className="mt-1 block w-full text-sm text-slate-600"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void onUploadChatFavicon(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    {chatFaviconUrl && (
+                      <button
+                        type="button"
+                        onClick={() => void onRemoveChatFavicon()}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50"
+                      >
+                        Faviconu kaldır
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
+          )}
+
           {activeTab === 'llm' && canTenantAdmin(role) && (
             <div className="space-y-6">
               <SectionCard title="RAG Politikası">

@@ -40,6 +40,31 @@ export async function apiFetch<T>(
   return data as T;
 }
 
+export async function apiUpload<T>(path: string, form: FormData, token: string | null): Promise<T> {
+  const headers: HeadersInit = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${apiBase()}${path}`, { method: 'POST', headers, body: form });
+  const text = await res.text();
+  let data: unknown = undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text) as unknown;
+    } catch {
+      data = text;
+    }
+  }
+  if (!res.ok) {
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('auth:logout'));
+    }
+    const err = new Error(`HTTP ${res.status}`) as Error & { status: number; body: unknown };
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data as T;
+}
+
 export function formatApiError(err: unknown): string {
   if (err && typeof err === 'object' && 'body' in err) {
     const body = (err as { body?: unknown }).body;

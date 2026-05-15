@@ -13,7 +13,31 @@ const mockStreamChat = vi.mocked(streamChat);
 
 // Suppress fetch errors from tenant-info fetch in component
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes('chat-branding')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            header_background: 'linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)',
+            welcome_title: 'Merhaba! 👋',
+            welcome_subtitle:
+              'Size nasıl yardımcı olabilirim? Randevu almak, randevularınızı sorgulamak veya bir şikayetinizi iletmek için aşağıdan başlayabilirsiniz.',
+            logo_url: null,
+            favicon_url: null,
+            quick_actions: [
+              { icon: '📅', label: 'Randevu Al' },
+              { icon: '📋', label: 'Randevularım' },
+              { icon: '💬', label: 'Şikayet Bildir' },
+              { icon: '❓', label: 'Hastane Bilgisi' },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    })
+  );
   sessionStorage.clear();
 });
 

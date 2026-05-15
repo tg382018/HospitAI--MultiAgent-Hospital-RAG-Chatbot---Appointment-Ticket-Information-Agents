@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from typing import TYPE_CHECKING
 
@@ -86,6 +87,51 @@ async def register_patient(
         password_hash=hash_password(password),
         full_name=full_name.strip() if full_name else None,
         role=UserRole.PATIENT,
+        is_active=True,
+    )
+    session.add(user)
+    await session.flush()
+    await session.refresh(user)
+    return user
+
+
+def _verify_admin_registration_key(settings: Settings, provided_key: str) -> None:
+    expected = settings.admin_registration_key
+    if not expected or not expected.strip():
+        raise AuthError(
+            "admin_registration_disabled",
+            "Admin registration is not enabled on this server",
+            503,
+        )
+    if not secrets.compare_digest(provided_key, expected):
+        raise AuthError("invalid_registration_key", "Invalid registration key", 403)
+
+
+async def register_admin(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    tenant_slug: str,
+    email: str,
+    password: str,
+    registration_key: str,
+) -> User:
+    _verify_admin_registration_key(settings, registration_key)
+
+    tenant = await get_tenant_by_slug(session, tenant_slug)
+    normalized = email.strip().lower()
+    existing = await session.execute(
+        select(User.id).where(User.tenant_id == tenant.id, User.email == normalized)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise AuthError("email_taken", "Email already registered for this hospital", 409)
+
+    user = User(
+        tenant_id=tenant.id,
+        email=normalized,
+        password_hash=hash_password(password),
+        full_name=None,
+        role=UserRole.ADMIN,
         is_active=True,
     )
     session.add(user)

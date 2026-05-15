@@ -8,6 +8,7 @@ from hospitai.api.deps import SessionDep, SettingsDep
 from hospitai.api.errors import AppError
 from hospitai.api.limiter import limiter
 from hospitai.api.schemas.auth import (
+    AdminRegisterRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -18,6 +19,7 @@ from hospitai.application.auth import (
     authenticate_user,
     get_user_for_claims,
     issue_token_pair,
+    register_admin,
     register_patient,
 )
 from hospitai.infrastructure.security.jwt_tokens import TokenError, decode_refresh_token
@@ -66,6 +68,35 @@ async def register(
             email=str(body.email),
             password=body.password,
             full_name=body.full_name,
+        )
+        await session.commit()
+    except AuthError as e:
+        await session.rollback()
+        raise AppError(e.code, e.message, status_code=e.status_code) from e
+    access, refresh = issue_token_pair(user, settings)
+    return TokenResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=settings.access_token_expire_minutes * 60,
+    )
+
+
+@router.post("/register-admin", response_model=TokenResponse, status_code=201)
+@limiter.limit("10/minute")
+async def register_admin_route(
+    request: Request,
+    body: AdminRegisterRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> TokenResponse:
+    try:
+        user = await register_admin(
+            session,
+            settings,
+            tenant_slug=body.tenant_slug,
+            email=str(body.email),
+            password=body.password,
+            registration_key=body.key,
         )
         await session.commit()
     except AuthError as e:

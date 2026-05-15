@@ -74,6 +74,14 @@ class Settings(BaseSettings):
         validation_alias="ALLOW_OPEN_REGISTRATION",
         description="If false, only existing admins can create users (future).",
     )
+    admin_registration_key: str | None = Field(
+        default=None,
+        validation_alias="ADMIN_REGISTRATION_KEY",
+        description=(
+            "Shared secret required for POST /auth/register-admin. "
+            "Unset disables admin self-registration."
+        ),
+    )
     public_chat_default_tenant_slug: str = Field(
         default="demo-hospital",
         validation_alias="PUBLIC_CHAT_DEFAULT_TENANT_SLUG",
@@ -240,6 +248,11 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="CELERY_RESULT_BACKEND",
         description="Defaults to CELERY_BROKER_URL when unset.",
+    )
+    tenant_assets_dir: str = Field(
+        default="data/tenant-assets",
+        validation_alias="TENANT_ASSETS_DIR",
+        description="Directory for per-tenant uploaded chat logos (relative to backend/).",
     )
 
     def cors_origin_list(self) -> list[str]:

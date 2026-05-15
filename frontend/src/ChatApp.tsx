@@ -13,16 +13,45 @@ interface ChatMsg {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 const SS_CONV = 'hospitai-chat-conversation-id';
 
-const QUICK_CHIPS = [
+const DEFAULT_QUICK_CHIPS = [
   { icon: '📅', label: 'Randevu Al' },
   { icon: '📋', label: 'Randevularım' },
   { icon: '💬', label: 'Şikayet Bildir' },
   { icon: '❓', label: 'Hastane Bilgisi' },
 ];
 
-const WELCOME_TITLE = 'Merhaba! 👋';
-const WELCOME_SUB =
+const DEFAULT_LOGO = '/ai-doctor-avatar.png';
+const DEFAULT_HEADER_BG = 'linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)';
+const DEFAULT_WELCOME_TITLE = 'Merhaba! 👋';
+const DEFAULT_WELCOME_SUB =
   'Size nasıl yardımcı olabilirim? Randevu almak, randevularınızı sorgulamak veya bir şikayetinizi iletmek için aşağıdan başlayabilirsiniz.';
+
+type QuickChip = { icon: string; label: string };
+
+type ChatBranding = {
+  header_background: string;
+  welcome_title: string;
+  welcome_subtitle: string;
+  logo_url: string | null;
+  favicon_url?: string | null;
+  quick_actions: QuickChip[];
+};
+
+const FAVICON_LINK_ID = 'hospitai-dynamic-favicon';
+
+function applyFavicon(url: string | null | undefined) {
+  const existing = document.getElementById(FAVICON_LINK_ID) as HTMLLinkElement | null;
+  if (!url) {
+    existing?.remove();
+    return;
+  }
+  const link = existing ?? document.createElement('link');
+  link.id = FAVICON_LINK_ID;
+  link.rel = 'icon';
+  link.type = 'image/x-icon';
+  link.href = url;
+  if (!existing) document.head.appendChild(link);
+}
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 function uid() {
@@ -48,12 +77,19 @@ function formatErr(e: unknown): string {
 
 /* ─── Sub-components ─────────────────────────────────────────────────────── */
 
-function TypingIndicator() {
+function ChatAvatar({ src, size = 'sm' }: { src: string; size?: 'sm' | 'lg' }) {
+  const box = size === 'lg' ? 'w-24 h-24 rounded-3xl border-4' : 'w-8 h-8 rounded-full border-2';
+  return (
+    <div className={`flex-shrink-0 overflow-hidden shadow-sm border-white ${box}`}>
+      <img src={src} alt="" className="w-full h-full object-cover" />
+    </div>
+  );
+}
+
+function TypingIndicator({ logoSrc }: { logoSrc: string }) {
   return (
     <div className="msg-assistant flex items-end gap-2 max-w-[80%]">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white">
-        <img src="/ai-doctor-avatar.png" alt="AI" className="w-full h-full object-cover" />
-      </div>
+      <ChatAvatar src={logoSrc} />
       <div className="rounded-2xl rounded-bl-sm bg-white shadow-sm border border-slate-100 px-4 py-3">
         <div className="flex items-center gap-1.5">
           <div className="typing-dot w-2 h-2 rounded-full bg-sky-400" />
@@ -65,18 +101,13 @@ function TypingIndicator() {
   );
 }
 
-function MessageBubble({ msg }: { msg: ChatMsg }) {
+function MessageBubble({ msg, logoSrc }: { msg: ChatMsg; logoSrc: string }) {
   const isUser = msg.role === 'user';
   return (
     <div
       className={`flex items-end gap-2 ${isUser ? 'flex-row-reverse msg-user' : 'msg-assistant'}`}
     >
-      {/* Avatar */}
-      {!isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full overflow-hidden shadow-sm border-2 border-white">
-          <img src="/ai-doctor-avatar.png" alt="AI" className="w-full h-full object-cover" />
-        </div>
-      )}
+      {!isUser && <ChatAvatar src={logoSrc} />}
       {isUser && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-sky-400 to-teal-500 flex items-center justify-center shadow-sm">
           <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -104,12 +135,13 @@ function MessageBubble({ msg }: { msg: ChatMsg }) {
   );
 }
 
-function QuickChips({ onPick }: { onPick: (label: string) => void }) {
+function QuickChips({ chips, onPick }: { chips: QuickChip[]; onPick: (label: string) => void }) {
+  if (!chips.length) return null;
   return (
     <div className="flex flex-wrap gap-2 justify-center px-2">
-      {QUICK_CHIPS.map((c, i) => (
+      {chips.map((c, i) => (
         <button
-          key={c.label}
+          key={`${c.label}-${i}`}
           onClick={() => onPick(c.label)}
           className="chip-enter flex items-center gap-1.5 rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-700 shadow-sm transition-all hover:bg-sky-50 hover:border-sky-400 hover:scale-105 active:scale-95"
           style={{ animationDelay: `${i * 0.07}s` }}
@@ -134,6 +166,17 @@ export function ChatApp() {
   const [sending, setSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [hospitalName, setHospitalName] = useState('');
+  const [branding, setBranding] = useState<ChatBranding>({
+    header_background: DEFAULT_HEADER_BG,
+    welcome_title: DEFAULT_WELCOME_TITLE,
+    welcome_subtitle: DEFAULT_WELCOME_SUB,
+    logo_url: null,
+    quick_actions: DEFAULT_QUICK_CHIPS,
+  });
+
+  const logoSrc = branding.logo_url || DEFAULT_LOGO;
+  const quickChips =
+    branding.quick_actions?.length > 0 ? branding.quick_actions : DEFAULT_QUICK_CHIPS;
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -143,8 +186,25 @@ export function ChatApp() {
   useEffect(() => {
     const cid = sessionStorage.getItem(SS_CONV);
     if (cid) setConversationId(cid);
-    // Fetch hospital name from public endpoint
-    fetch(`/api/v1/public/tenant-info?slug=${TENANT_SLUG}`)
+    fetch(`/api/v1/public/chat-branding?slug=${encodeURIComponent(TENANT_SLUG)}`)
+      .then((r) => r.json())
+      .then((d: ChatBranding & { slug?: string }) => {
+        if (d?.header_background) {
+          setBranding({
+            header_background: d.header_background,
+            welcome_title: d.welcome_title || DEFAULT_WELCOME_TITLE,
+            welcome_subtitle: d.welcome_subtitle || DEFAULT_WELCOME_SUB,
+            logo_url: d.logo_url ?? null,
+            quick_actions:
+              Array.isArray(d.quick_actions) && d.quick_actions.length > 0
+                ? d.quick_actions
+                : DEFAULT_QUICK_CHIPS,
+          });
+          applyFavicon(d.favicon_url);
+        }
+      })
+      .catch(() => {});
+    fetch(`/api/v1/public/tenant-info?slug=${encodeURIComponent(TENANT_SLUG)}`)
       .then((r) => r.json())
       .then((d: { name: string }) => {
         if (d?.name) setHospitalName(d.name);
@@ -259,12 +319,7 @@ export function ChatApp() {
   return (
     <div className="flex min-h-dvh flex-col">
       {/* ── Hero Header ─────────────────────────────────────────── */}
-      <div
-        className="relative overflow-hidden"
-        style={{
-          background: 'linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)',
-        }}
-      >
+      <div className="relative overflow-hidden" style={{ background: branding.header_background }}>
         {/* Background illustration */}
         <div
           className="absolute inset-0 opacity-10"
@@ -283,11 +338,7 @@ export function ChatApp() {
         <div className="relative mx-auto max-w-2xl px-4 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl overflow-hidden shadow-lg border-2 border-white/30 float-slow">
-              <img
-                src="/ai-doctor-avatar.png"
-                alt="HospitAI"
-                className="w-full h-full object-cover"
-              />
+              <img src={logoSrc} alt="" className="w-full h-full object-cover" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">
@@ -336,30 +387,28 @@ export function ChatApp() {
           {showEmpty && (
             <div className="flex flex-col items-center justify-center flex-1 gap-6 py-8 msg-fade">
               <div className="relative">
-                <div className="w-24 h-24 rounded-3xl overflow-hidden shadow-xl border-4 border-white float-slow">
-                  <img
-                    src="/ai-doctor-avatar.png"
-                    alt="HospitAI"
-                    className="w-full h-full object-cover"
-                  />
+                <div className="float-slow shadow-xl">
+                  <ChatAvatar src={logoSrc} size="lg" />
                 </div>
                 <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-green-400 border-2 border-white pulse-green" />
               </div>
               <div className="text-center max-w-xs">
-                <h2 className="text-xl font-bold text-slate-800">{WELCOME_TITLE}</h2>
-                <p className="mt-2 text-sm text-slate-500 leading-relaxed">{WELCOME_SUB}</p>
+                <h2 className="text-xl font-bold text-slate-800">{branding.welcome_title}</h2>
+                <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+                  {branding.welcome_subtitle}
+                </p>
               </div>
-              <QuickChips onPick={onChipClick} />
+              <QuickChips chips={quickChips} onPick={onChipClick} />
             </div>
           )}
 
           {/* Messages */}
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} msg={msg} />
+            <MessageBubble key={msg.id} msg={msg} logoSrc={logoSrc} />
           ))}
 
           {/* Typing indicator */}
-          {isTyping && <TypingIndicator />}
+          {isTyping && <TypingIndicator logoSrc={logoSrc} />}
 
           {/* Auto-scroll anchor */}
           <div ref={bottomRef} />

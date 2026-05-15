@@ -36,6 +36,9 @@ infra/.env
 *.swp
 .DS_Store
 
+# Tenant-uploaded chat logos (local dev)
+backend/data/tenant-assets/
+
 # Build outputs
 frontend/dist/
 *.log
