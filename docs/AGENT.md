@@ -20,40 +20,30 @@ agent/src/
 └── tools/           # Tool parameter extraction helpers
 ```
 
-## Pipeline
+## Pipeline (tool-augmented)
 
 ```
 input_guardrail
       │
-classify_intent
+agent_node  ── On the first LLM call of each user turn:
+      │        OpenAI intent classifier (low temperature) runs on the
+      │        latest message (+ short history). Unless intent is
+      │        clearly `complaint`, complaint/ticket tools are hidden
+      │        from the model so greetings do not open ticket flows.
+      ├── (optional) tool_executor_node ⟲  (loops up to max)
       │
-route_by_intent
-      ├── appointment ──► handle_appointment ──► generate_response
-      ├── complaint   ──► handle_complaint   ──► generate_response
-      └── medical /       retrieve_context
-          hospital /           │
-          general    ──► grade_rag_relevance
-                               │
-                         augment_web_context  (Tavily, optional)
-                               │
-                         generate_response
-                               │
-                         verify_response ──(retry once)──► generate_response
-                               │
-                         output_guardrail
+output_guardrail
 ```
 
-**input_guardrail / output_guardrail** — blocks harmful or off-topic content.
+The conversational model uses `bind_tools`; it may call appointment, RAG, doctor list, or (when allowed) complaint tools. Classification for gating is implemented in `intent.py` (`classify_turn_for_tools`) and invoked from `agent_node`.
 
-**classify_intent** — keyword heuristics + LLM call. Intents: `appointment`, `complaint`, `medical`, `hospital`, `general`.
+**Note:** Each user turn may incur **two** lightweight OpenAI calls on the first agent step when keys are configured: one for intent gating (~JSON), one for the main chat model.
 
-**retrieve_context** — vector search in ChromaDB against hospital-uploaded documents.
+**intent gating** — `intent.py` runs a dedicated OpenAI classification step (low temperature) before the first tool-eligible call each turn. It can hide complaint/ticket tools when the user message is clearly a greeting or non-complaint topic.
 
-**grade_rag_relevance** — scores retrieved chunks; drops irrelevant ones. If nothing passes, optionally falls back to a Tavily web summary (`TAVILY_API_KEY` required).
+**Tool loop** — the main model may call DB/HIS/RAG tools; results are fed back as `ToolMessage`s until the model returns text or hits the loop cap.
 
-**generate_response** — final LLM call with system prompt, conversation history, and retrieved context.
-
-**verify_response** — checks the response addresses the question with evidence. Retries once with stricter instructions; if still weak, returns a safe short fallback.
+**RAG** — document search is triggered via the `search_hospital_info` tool (Chroma + embeddings), not a separate graph node.
 
 ## Tools (injected by backend)
 

@@ -20,7 +20,12 @@ Kullanıcı şunları soruyorsa list_doctors kullan:
 - list_doctors gerçek DB verisi döner, RAG'dan daha güvenilirdir
 
 ### Randevu Alma / Boş Saat → list_available_slots
-- "ne zaman müsait?", "randevu almak istiyorum", bölüm/doktor için boş slot sorgusu
+- **Tarih şart:** Kullanıcı **hangi gün** için bakılacağını söylemeden (ör. yalnızca "randevu?")
+  bu aracı **çağırma**. Önce kısa sor: "Hangi gün için müsait randevu görmemi istersiniz?
+  (Örn. bugün, yarın veya YYYY-AA-GG.)"
+- Geçmiş bir tarih yazılırsa araç hata döner; model kullanıcıya "bugün veya ileri bir tarih"
+  söylemesini iletir.
+- Kullanıcı "bugün", "yarın" veya net bir ISO tarih verdiğinde `target_date` alanına yaz ve çağır.
 - Doktor belirtilmemişse department_name ile çağır, sistem uygun doktoru bulur
 
 ### Randevu Oluşturma → book_appointment
@@ -35,10 +40,13 @@ Kullanıcı şunları soruyorsa list_doctors kullan:
 - Telefon varsa direkt çağır, konuşmadan hangi randevu olduğu belliyse tekrar sorma
 
 ### Şikayet / Talep Oluştur → create_complaint_ticket
-- Ad+telefon mesajda varsa hemen oluştur (patient_name, patient_phone doldur)
-- Kimlik yoksa "adınız ve telefon?" diye sor
+- **Yalnızca** kullanıcı şikayet/ticket/talep kaydı açmak istediğini **net** belirttiğinde kullan.
+- Selam/merhaba/teşekkür gibi genel mesajlarda bu aracı **çağırma** — önce nazik karşılık ver.
+- Ad+telefon mesajda varsa hemen oluştur (patient_name, patient_phone doldur).
+- Kimlik yoksa ve kullanıcı gerçekten şikayet akışındaysa "adınız ve telefon?" diye sor.
 
 ### Talep Sorgula / Kapat → list_complaint_tickets / close_complaint_ticket
+- Aynı kural: kullanıcı talep/şikayet veya TKT referansından bahsetmedikçe çağırma.
 
 ### Genel Hastane Bilgisi → search_hospital_info
 SADECE şunlar için kullan (DB araçlarında olmayan bilgiler):

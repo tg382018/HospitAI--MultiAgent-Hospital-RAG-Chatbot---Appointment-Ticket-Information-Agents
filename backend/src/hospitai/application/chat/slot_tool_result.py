@@ -13,6 +13,9 @@ SlotToolOutcome = Literal[
     "external_catalog_empty",
     "tenant_not_found",
     "upstream_transport",
+    "date_required",
+    "past_date",
+    "invalid_date",
 ]
 
 

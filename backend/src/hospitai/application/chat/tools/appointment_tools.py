@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import structlog
@@ -14,7 +14,11 @@ from state import ChatState
 
 from hospitai.application import appointments as appt_svc
 from hospitai.application import patient_identity as pid
-from hospitai.application.chat.slot_tool_result import wrap_slot_tool_error, wrap_slot_tool_success
+from hospitai.application.chat.slot_tool_result import (
+    SlotToolOutcome,
+    wrap_slot_tool_error,
+    wrap_slot_tool_success,
+)
 from hospitai.application.errors import DomainError
 from hospitai.infrastructure import hospital_chat_bridge as hosp_bridge
 from hospitai.infrastructure.db.session import get_session_factory
@@ -29,9 +33,53 @@ from .common import (
     fmt_dt,
     get_tenant,
     get_user,
+    today_in_turkey,
 )
 
 log = structlog.get_logger(__name__)
+
+
+def _parse_slot_list_day(raw: str) -> tuple[date | None, str | None, str | None]:
+    """Parse target date for slot listing.
+
+    Returns ``(day, None, None)`` on success, or
+    ``(None, slot_outcome, user_message_tr)`` on failure.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return (
+            None,
+            "date_required",
+            "Hangi gün için müsait randevu görmek istediğinizi belirtir misiniz? "
+            "Örneğin: bugün, yarın veya 2026-05-20 gibi bir tarih yazabilirsiniz.",
+        )
+
+    tl = s.lower()
+    td = today_in_turkey()
+
+    if tl in ("bugün", "bugun", "today"):
+        day = td
+    elif tl in ("yarın", "yarin", "tomorrow"):
+        day = td + timedelta(days=1)
+    else:
+        try:
+            day = date.fromisoformat(s)
+        except ValueError:
+            return (
+                None,
+                "invalid_date",
+                "Tarihi anlayamadım. Lütfen YYYY-AA-GG biçiminde (ör. 2026-05-20), "
+                "'bugün' veya 'yarın' yazın.",
+            )
+
+    if day < td:
+        return (
+            None,
+            "past_date",
+            "Geçmiş bir tarih için randevu alınamaz. Lütfen bugün veya ileri bir tarih söyleyin.",
+        )
+
+    return (day, None, None)
 
 
 async def list_available_slots_tool(
@@ -41,12 +89,15 @@ async def list_available_slots_tool(
     target_date: str = "",
 ) -> dict[str, Any]:
     """List available appointment slots. Returns slot list or error."""
-    async with get_session_factory()() as session:
-        try:
-            day = date.fromisoformat(target_date) if target_date else date.today()
-        except ValueError:
-            day = date.today()
+    day, err_outcome, err_tr = _parse_slot_list_day(target_date)
+    if err_outcome is not None:
+        return wrap_slot_tool_error(
+            outcome=cast(SlotToolOutcome, err_outcome),
+            error=err_outcome,
+            user_message_tr=err_tr,
+        )
 
+    async with get_session_factory()() as session:
         tenant = await get_tenant(session, state.tenant_slug)
         if not tenant:
             return wrap_slot_tool_error(
@@ -377,6 +428,17 @@ async def book_appointment_tool(
         }
     if starts_at.tzinfo is None:
         starts_at = starts_at.replace(tzinfo=_TZ_TURKEY)
+    slot_start_tr = starts_at.astimezone(_TZ_TURKEY)
+    now_tr = datetime.now(_TZ_TURKEY)
+    if slot_start_tr < now_tr - timedelta(minutes=5):
+        return {
+            "success": False,
+            "user_message_tr": (
+                "Seçtiğiniz saat geçmişte kaldı veya artık uygun değil. "
+                "Lütfen ileri bir tarih ve saat seçin."
+            ),
+        }
+
     ends_at = starts_at + timedelta(minutes=30)
 
     async with get_session_factory()() as session:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import structlog
@@ -14,6 +14,11 @@ from hospitai.application import patient_identity as pid
 log = structlog.get_logger(__name__)
 
 _TZ_TURKEY = timezone(timedelta(hours=3))
+
+
+def today_in_turkey() -> date:
+    """Current calendar date in Turkey (UTC+3, no DST)."""
+    return datetime.now(_TZ_TURKEY).date()
 
 
 def fmt_dt(value: object) -> str:

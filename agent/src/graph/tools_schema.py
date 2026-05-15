@@ -29,7 +29,12 @@ TOOLS: list[dict] = [
                     },
                     "target_date": {
                         "type": "string",
-                        "description": "ISO tarih (2026-05-15), 'bugün' veya 'yarın'. Belirtilmezse bugün.",
+                        "description": (
+                            "Zorunlu. Kullanıcının istediği randevu **günü**: "
+                            "ISO tarih YYYY-AA-GG, veya 'bugün' / 'yarın'. "
+                            "Kullanıcı gün belirtmediyse bu aracı ÇAĞIRMA; önce hangi tarih "
+                            "için randevu bakacağını sor. Geçmiş tarih verilmişse sistem reddeder."
+                        ),
                     },
                 },
                 "required": [],

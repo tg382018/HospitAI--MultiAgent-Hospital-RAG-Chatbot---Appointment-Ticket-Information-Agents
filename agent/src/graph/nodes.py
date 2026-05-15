@@ -3,8 +3,10 @@
 Flow:
     input_guardrail → agent_node ⟷ tool_executor_node → output_guardrail
 
-The LLM decides which tools to call and extracts structured parameters
-directly from the user message — no regex keyword matching.
+The main LLM decides which tools to call. On the **first** call of each user turn,
+an extra low-temperature OpenAI classifier may **hide** complaint/ticket tools
+unless the user clearly intends a complaint workflow — this prevents greetings
+from being steered into ticket collection.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from graph.state_types import (
     graph_state_to_chat_state,
 )
 from graph.tools_schema import APPOINTMENT_TOOLS, COMPLAINT_TOOLS, TOOLS
+from intent import classify_turn_for_tools
 from llm.client import get_llm
 from llm.profile import get_llm_profile, merge_llm_profile
 from safety import output_safety_check, safety_check
@@ -82,6 +85,33 @@ async def agent_node(state: GraphState) -> GraphState:
 
     profile = merge_llm_profile(get_llm_profile(), state.get("llm_overrides") or None)
 
+    is_first_llm_round = not (state.get("llm_messages") or [])
+    tools_to_bind: list[Any] = list(TOOLS)
+    if is_first_llm_round:
+        try:
+            routed_intent = await classify_turn_for_tools(
+                state["user_message"],
+                state.get("history"),
+                profile=profile,
+            )
+        except Exception as exc:
+            log.warning(
+                "agent_complaint_tool_gate_classifier_failed",
+                error=str(exc),
+            )
+            # Fail closed on complaint tools to avoid erroneous ticket flows.
+            routed_intent = "general"
+
+        if routed_intent != "complaint":
+            tools_to_bind = [
+                t for t in TOOLS if t["function"]["name"] not in COMPLAINT_TOOLS
+            ]
+        log.info(
+            "agent_complaint_tool_gate",
+            routed_intent=routed_intent,
+            complaint_tools_enabled=routed_intent == "complaint",
+        )
+
     # Build the full message list for this LLM call
     messages: list[Any] = [SystemMessage(content=_build_system_prompt(state))]
 
@@ -107,7 +137,7 @@ async def agent_node(state: GraphState) -> GraphState:
         state["pending_tool_calls"] = []
         return state
 
-    llm = get_llm(profile).bind_tools(TOOLS)
+    llm = get_llm(profile).bind_tools(tools_to_bind)
     try:
         result = await llm.ainvoke(messages)
     except Exception as exc:
@@ -195,9 +225,11 @@ def _build_system_prompt(state: GraphState) -> str:
     ]
     if not (state.get("user_id") or "").strip():
         parts.append(
-            "Kullanıcı giriş yapmadan yazıyor (misafir). "
-            "Randevu veya şikayet işlemleri için ad-soyad ve telefon numarası gereklidir; "
-            "kullanıcı bunları mesajında veriyorsa doğrudan araç çağrısına aktar, tekrar sorma."
+            "Misafir kullanıcı: Ad ve telefonu **yalnızca** kullanıcı randevu veya "
+            "şikayet/talep konusunu **açıkça** başlattıktan sonra iste. "
+            "Selam, merhaba, teşekkür, kısa tanışma veya genel sohbet için kimlik sorma "
+            "ve şikayet veya randevu akışına sokma; önce kısa ve nazik karşılık ver, "
+            "nasıl yardımcı olabileceğini sor."
         )
     return "\n".join(parts)
 
