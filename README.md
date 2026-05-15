@@ -2,6 +2,23 @@
 
 An AI-powered hospital assistant platform. Hospitals deploy this system so patients can book appointments, ask medical questions, and submit complaints — all through a conversational AI chat interface.
 
+## Screenshots
+
+### Patient chat
+
+|                            Appointment flow                             |                            Hospital info                             |                            Conversation                             |
+| :---------------------------------------------------------------------: | :------------------------------------------------------------------: | :-----------------------------------------------------------------: |
+| ![Patient chat — appointment flow](docs/ReadmeImages/chat-example1.png) | ![Patient chat — hospital info](docs/ReadmeImages/chat-example2.png) | ![Patient chat — conversation](docs/ReadmeImages/chat-example3.png) |
+
+### Admin panel
+
+|                                                              |                                                                         |
+| :----------------------------------------------------------: | :---------------------------------------------------------------------: |
+|  ![Admin dashboard](docs/ReadmeImages/admin-dashboard.png)   |         ![Appointments](docs/ReadmeImages/admin-randevular.png)         |
+| ![RAG documents](docs/ReadmeImages/admin-rag-dokumanlar.png) | ![Chat UI branding](docs/ReadmeImages/admin-chat-arayuz-degistirme.png) |
+
+---
+
 ```
 HospitAI/
 ├── frontend/       # Patient chat UI        (React + Vite)
