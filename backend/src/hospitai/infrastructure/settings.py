@@ -209,6 +209,28 @@ class Settings(BaseSettings):
         description="Token overlap between consecutive chunks.",
     )
 
+    # ---- Database connection pool ----
+    db_pool_size: int = Field(
+        default=10,
+        validation_alias="DB_POOL_SIZE",
+        description="SQLAlchemy async engine pool_size (concurrent connections held open).",
+    )
+    db_max_overflow: int = Field(
+        default=20,
+        validation_alias="DB_MAX_OVERFLOW",
+        description="Extra connections allowed above pool_size before blocking.",
+    )
+    db_pool_timeout: int = Field(
+        default=30,
+        validation_alias="DB_POOL_TIMEOUT",
+        description="Seconds to wait for a connection from the pool before raising TimeoutError.",
+    )
+    db_pool_recycle: int = Field(
+        default=1800,
+        validation_alias="DB_POOL_RECYCLE",
+        description="Seconds after which a connection is recycled (avoids stale connections).",
+    )
+
     # ---- Celery (background workers) ----
     celery_broker_url: str = Field(
         default="redis://127.0.0.1:6379/0",

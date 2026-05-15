@@ -142,7 +142,13 @@ function SectionCard({
 const TENANT_SLUG = (import.meta.env.VITE_TENANT_SLUG as string | undefined) ?? 'demo-hospital';
 
 /* ─── Login ───────────────────────────────────────────────────────────────── */
-function LoginForm({ onSuccess }: { onSuccess: (access: string, me: Me) => void }) {
+function LoginForm({
+  onSuccess,
+  hospitalName,
+}: {
+  onSuccess: (access: string, me: Me) => void;
+  hospitalName: string;
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -299,6 +305,23 @@ export default function App() {
   const [hospitalName, setHospitalName] = useState('Hospital');
   const [hospitalNameInput, setHospitalNameInput] = useState('');
   const [hospitalNameMsg, setHospitalNameMsg] = useState<string | null>(null);
+
+  // Giriş öncesi: public tenant adı (LoginForm prop'u; accessToken yokken çalışır)
+  useEffect(() => {
+    if (accessToken) return;
+    let cancelled = false;
+    void fetch(`/api/v1/public/tenant-info?slug=${encodeURIComponent(TENANT_SLUG)}`)
+      .then((r) => r.json())
+      .then((d: { name?: string }) => {
+        if (!cancelled && typeof d?.name === 'string' && d.name.trim()) {
+          setHospitalName(d.name.trim());
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   // Policy + LLM
   const [tenantPolicy, setTenantPolicy] = useState<TenantPolicy | null>(null);
@@ -825,7 +848,13 @@ export default function App() {
   }
 
   /* ── Auth guard ──────────────────────────────────────────────────────────── */
-  if (!token || !me) return <LoginForm onSuccess={(access, user) => setSession(access, user)} />;
+  if (!token || !me)
+    return (
+      <LoginForm
+        onSuccess={(access, user) => setSession(access, user)}
+        hospitalName={hospitalName}
+      />
+    );
 
   /* ── Stats for dashboard ─────────────────────────────────────────────────── */
   const totalAppts = appointments.length;

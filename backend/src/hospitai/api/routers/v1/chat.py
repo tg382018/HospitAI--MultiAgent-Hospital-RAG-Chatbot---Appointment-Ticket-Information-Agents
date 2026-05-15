@@ -35,7 +35,7 @@ from hospitai.infrastructure.db.models.conversation import Conversation
 from hospitai.infrastructure.db.models.tenant import Tenant
 from hospitai.infrastructure.db.models.user import User
 from hospitai.infrastructure.db.session import get_session_factory
-from hospitai.infrastructure.settings import Settings
+from hospitai.infrastructure.settings import Settings, get_settings
 
 log = structlog.get_logger(__name__)
 
@@ -131,7 +131,7 @@ def _patient_verification_user_id(conv: Conversation) -> str:
 async def _save_assistant_and_maybe_audit(
     session: AsyncSession,
     *,
-    conv: Conversation,
+    conv_id: uuid.UUID,
     tenant_id: uuid.UUID,
     actor_user_id: uuid.UUID | None,
     result: dict[str, Any],
@@ -140,7 +140,7 @@ async def _save_assistant_and_maybe_audit(
 ) -> None:
     await save_message(
         session,
-        conversation_id=conv.id,
+        conversation_id=conv_id,
         tenant_id=tenant_id,
         role="assistant",
         content=result["response"],
@@ -152,7 +152,7 @@ async def _save_assistant_and_maybe_audit(
             actor_user_id=actor_user_id,
             action="chat.safety_block",
             resource_type="conversation",
-            resource_id=conv.id,
+            resource_id=conv_id,
             payload={
                 "intent": result.get("intent"),
                 "reason": result.get("safety_reason", ""),
@@ -164,7 +164,7 @@ async def _save_assistant_and_maybe_audit(
 
 
 @router.post("", response_model=ChatResponse)
-@limiter.limit("60/minute")
+@limiter.limit(lambda: get_settings().chat_rate_limit)
 async def chat(
     request: Request,
     body: ChatRequest,
@@ -269,7 +269,7 @@ async def chat(
     async with get_session_factory()() as session:
         await _save_assistant_and_maybe_audit(
             session,
-            conv=conv,
+            conv_id=conv.id,
             tenant_id=tenant_id,
             actor_user_id=user.id if user else None,
             result=result,
@@ -291,7 +291,7 @@ async def chat(
 
 
 @router.post("/stream")
-@limiter.limit("60/minute")
+@limiter.limit(lambda: get_settings().chat_rate_limit)
 async def chat_stream(
     request: Request,
     body: ChatRequest,
@@ -355,25 +355,31 @@ async def chat_stream(
                 content=body.message,
             )
             await session.commit()
+            # Extract primitive values before session closes — conv becomes detached after this.
+            conv_id = conv.id
     except AppError:
         raise
     except (ConnectionRefusedError, TimeoutError) as exc:
-        # asyncpg / TCP: port kapalı veya Postgres ayakta değil (SQLAlchemyError dışında kalabilir).
-        log.exception("chat_stream_db_unreachable", error=str(exc))
+        log.exception(
+            "chat_stream_db_unreachable",
+            error=str(exc),
+            hint="Check postgres: docker compose -f infra/docker-compose.yml ps; "
+            "verify DATABASE_URL host/port match compose mapping; run alembic upgrade head",
+        )
         raise AppError(
             "database_unavailable",
-            "Veritabanına bağlanılamıyor. `docker compose -f infra/docker-compose.yml ps` ile "
-            "Postgres'in çalıştığını doğrulayın; `backend/.env` içindeki DATABASE_URL host/portu "
-            "compose eşlemesiyle aynı olsun (ör. 5432↔5432 veya 15432↔5432). Ardından "
-            "`alembic upgrade head`.",
+            "Servis geçici olarak kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
             status_code=503,
         ) from exc
     except SQLAlchemyError as exc:
-        log.exception("chat_stream_db_error", error=str(exc))
+        log.exception(
+            "chat_stream_db_error",
+            error=str(exc),
+            hint="Ensure postgres is running and alembic upgrade head has been applied",
+        )
         raise AppError(
             "database_unavailable",
-            "Veritabanına bağlanılamıyor. Postgres'in çalıştığını ve "
-            "`alembic upgrade head` ile migrasyonların uygulandığını kontrol edin.",
+            "Servis geçici olarak kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
             status_code=503,
         ) from exc
     except Exception:
@@ -389,7 +395,7 @@ async def chat_stream(
     boxed: dict[str, Any] = {}
 
     async def event_gen():
-        meta = json.dumps({"conversation_id": str(conv.id)}, ensure_ascii=False)
+        meta = json.dumps({"conversation_id": str(conv_id)}, ensure_ascii=False)
         yield f"event: meta\ndata: {meta}\n\n"
 
         if limit_err:
@@ -421,7 +427,7 @@ async def chat_stream(
                 guest_phone=gp,
                 guest_email=ge,
                 guest_national_id=gid,
-                conversation_id=str(conv.id),
+                conversation_id=str(conv_id),
                 verified_patient_user_id=vu,
             ):
                 yield raw
@@ -441,7 +447,7 @@ async def chat_stream(
         async with get_session_factory()() as session:
             await _save_assistant_and_maybe_audit(
                 session,
-                conv=conv,
+                conv_id=conv_id,
                 tenant_id=tenant_id,
                 actor_user_id=user.id if user else None,
                 result=result,

@@ -4,6 +4,9 @@ Revision ID: f2b3c4d5e6a7
 Revises: f1a2b3c4d5e6
 Create Date: 2026-05-12
 
+LEGACY SEED MIGRATION — do not replicate this pattern.
+Seed data should live in backend/scripts/seed_dev.py (idempotent, runnable at any time).
+Schema changes belong in migrations; data seeding belongs in scripts.
 """
 
 from collections.abc import Sequence
