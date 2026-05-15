@@ -1,12 +1,11 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
 name = "hospitai-agent"
 version = "0.0.1"
 description = "HospitAI LangGraph workflow and LLM nodes (agent layer)"
-readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "structlog>=24.4",

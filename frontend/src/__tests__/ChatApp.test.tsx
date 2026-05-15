@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatApp } from '../ChatApp';
 
@@ -57,7 +57,6 @@ describe('ChatApp', () => {
 
   it('send button is disabled when input is empty', () => {
     render(<ChatApp />);
-    const btn = screen.getByRole('button', { name: '' });
     // The submit button should be the one inside the form; check disabled state via aria
     const form = document.querySelector('form')!;
     const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;

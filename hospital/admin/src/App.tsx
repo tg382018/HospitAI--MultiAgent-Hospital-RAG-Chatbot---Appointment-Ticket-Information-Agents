@@ -370,10 +370,10 @@ export default function App() {
   const [editDocLoading, setEditDocLoading] = useState(false);
 
   // Connector
-  const [connector, setConnector] = useState<TenantConnector | null>(null);
+  const [_connector, setConnector] = useState<TenantConnector | null>(null);
   const [connBase, setConnBase] = useState('');
   const [connKey, setConnKey] = useState('');
-  const [connMsg, setConnMsg] = useState<string | null>(null);
+  const [_connMsg, setConnMsg] = useState<string | null>(null);
 
   // Users
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
@@ -872,7 +872,7 @@ export default function App() {
     }
   }
 
-  async function onSaveConnector(e: React.FormEvent) {
+  async function _onSaveConnector(e: React.FormEvent) {
     e.preventDefault();
     if (!token || !canManageConnector(role)) return;
     try {
@@ -2460,6 +2460,49 @@ export default function App() {
                         className={`text-sm ${hospitalNameMsg.includes('güncellendi') ? 'text-green-700' : 'text-red-600'}`}
                       >
                         {hospitalNameMsg}
+                      </p>
+                    )}
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-gradient-to-r from-sky-500 to-teal-500 px-5 py-2 text-sm font-semibold text-white hover:opacity-90"
+                    >
+                      Kaydet
+                    </button>
+                  </form>
+                </SectionCard>
+              )}
+
+              {canManageConnector(role) && (
+                <SectionCard title="Hastane Sistemi Bağlantısı (HIS)">
+                  <p className="mb-4 text-sm text-slate-500">
+                    Randevu işlemleri için harici hastane API adresi ve anahtarı.
+                  </p>
+                  <form onSubmit={(e) => void _onSaveConnector(e)} className="max-w-sm space-y-3">
+                    <label className="block text-sm font-medium text-slate-700">
+                      API Adresi
+                      <input
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                        value={connBase}
+                        onChange={(e) => setConnBase(e.target.value)}
+                        placeholder="https://hastane-adresiniz.com"
+                        type="url"
+                      />
+                    </label>
+                    <label className="block text-sm font-medium text-slate-700">
+                      API Anahtarı (isteğe bağlı)
+                      <input
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                        value={connKey}
+                        onChange={(e) => setConnKey(e.target.value)}
+                        placeholder="••••••••"
+                        type="password"
+                      />
+                    </label>
+                    {_connMsg && (
+                      <p
+                        className={`text-sm ${_connMsg === 'Kaydedildi.' ? 'text-green-700' : 'text-red-600'}`}
+                      >
+                        {_connMsg}
                       </p>
                     )}
                     <button
