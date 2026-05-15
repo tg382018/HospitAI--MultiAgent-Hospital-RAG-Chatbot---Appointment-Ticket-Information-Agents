@@ -1,64 +1,82 @@
-# Agent katmanı (`hospitai_agent`)
+# Agent — `hospitai-agent`
 
-Bu dosya **adım 5** çıktısıdır: LangGraph sohbet akışının dosya haritası ve kısa davranış özeti.
+The `agent/` directory is a **standalone Python package** (`hospitai-agent`) that contains the entire AI pipeline. The backend imports it at runtime; they share the same process.
 
-## Akış (yüksek seviye)
+## Package layout
 
-```mermaid
-flowchart TD
-  A[input_guardrail] --> B[classify_intent]
-  B --> C{route_by_intent}
-  C -->|appointment| D[handle_appointment]
-  C -->|complaint| E[handle_complaint]
-  C -->|hospital/medical/general| F[handle_*]
-  D --> G[generate_response]
-  E --> G
-  F --> H[retrieve_context]
-  H --> J[grade_rag_relevance]
-  J --> K[augment_web_context]
-  K --> G
-  G --> V[verify_response]
-  V -->|retry once| G
-  V -->|done| I[output_guardrail]
+```
+agent/src/
+├── graph/           # LangGraph pipeline (main entry point)
+│   ├── builder.py   # StateGraph assembly, compiled graph cache
+│   ├── nodes.py     # All LangGraph nodes (guardrail, intent, RAG, tools, generate, verify)
+│   ├── routing.py   # Intent-based edge routing
+│   ├── prompts.py   # System prompts per intent
+│   ├── quality.py   # RAG grading, Tavily web fallback, response verification
+│   ├── streaming.py # SSE token parsing and postprocessing
+│   └── chat_runner.py  # run_chat / iter_chat_sse entry points
+├── llm/             # LLM client and profile configuration
+├── rag/             # Embeddings, chunking, RAG profile
+├── vectordb/        # ChromaDB client wrapper
+└── tools/           # Tool parameter extraction helpers
 ```
 
-- **Güvenlik:** giriş ve çıkışta `safety` modülü.
-- **Niyet:** `intent.py` (anahtar kelime + LLM).
-- **Araçlar:** randevu slotları, randevu listesi, ticket listesi / referans — platform `ChatWorkflowTools` ile enjekte edilir (`configure_workflow_tools`).
-- **RAG + kalite (CRAG-lite):** `retrieve_context` → `grade_rag_relevance` (alakasız chunk’ları düşürür) → `augment_web_context` (RAG boşsa ve `TAVILY_API_KEY` varsa kısa web özeti) → `generate_response` → `verify_response` (kanıta uyum + soru adresi; en fazla bir kez sıkı yeniden üretim, hâlâ zayıfsa güvenli kısa mesaj).
-- **Yanıt:** `generate_response` (LLM veya araç çıktısı düşmesi); `user_message_tr` alanı varsa öncelikli özet.
+## Pipeline
 
-## Paket yapısı (`graph/`)
+```
+input_guardrail
+      │
+classify_intent
+      │
+route_by_intent
+      ├── appointment ──► handle_appointment ──► generate_response
+      ├── complaint   ──► handle_complaint   ──► generate_response
+      └── medical /       retrieve_context
+          hospital /           │
+          general    ──► grade_rag_relevance
+                               │
+                         augment_web_context  (Tavily, optional)
+                               │
+                         generate_response
+                               │
+                         verify_response ──(retry once)──► generate_response
+                               │
+                         output_guardrail
+```
 
-| Dosya                  | Rol                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------- |
-| `graph/__init__.py`    | Dış API: `run_chat`, `iter_chat_sse`, `build_graph`, `configure_workflow_tools`, `invalidate_graph` |
-| `graph/state_types.py` | `GraphState` TypedDict; `ChatState` ↔ graph dönüşümleri                                             |
-| `graph/prompts.py`     | Niyet başına sistem prompt’ları ve `GENERAL_FALLBACK`                                               |
-| `graph/registry.py`    | Platform araç bağlaması (`get_workflow_tools`)                                                      |
-| `graph/routing.py`     | `route_by_intent`; mesajdan randevu / talep listesi heuristikleri                                   |
-| `graph/nodes.py`       | LangGraph düğümleri: güvenlik, niyet, RAG çekimi, araçlar, üretim                                   |
-| `graph/quality.py`     | RAG alaka notu, isteğe bağlı Tavily web özeti, üretim sonrası doğrulama                             |
-| `graph/builder.py`     | `StateGraph` kurulumu, derlenmiş graf önbelleği                                                     |
-| `graph/chat_runner.py` | `run_chat` / `iter_chat_sse` (SSE: `streaming.py`)                                                  |
-| `graph/streaming.py`   | Token parçası ayrıştırma, `postprocess_chat_result`, SSE satırı                                     |
+**input_guardrail / output_guardrail** — blocks harmful or off-topic content.
 
-## Paket dışı (aynı seviye)
+**classify_intent** — keyword heuristics + LLM call. Intents: `appointment`, `complaint`, `medical`, `hospital`, `general`.
 
-| Dosya                                                       | Rol                                    |
-| ----------------------------------------------------------- | -------------------------------------- |
-| `state.py`                                                  | `ChatState` dataclass                  |
-| `workflow_tools.py`                                         | Platform arayüzü (`ChatWorkflowTools`) |
-| `intent.py`, `safety.py`, `llm_client.py`, `llm_profile.py` | Sınıflandırma, güvenlik, model         |
-| `slot_params.py`, `ticket_reference.py`                     | Mesajdan parametre çıkarma             |
-| `rag_profile.py`, `vector_db.py`, …                         | RAG altyapısı                          |
+**retrieve_context** — vector search in ChromaDB against hospital-uploaded documents.
 
-## Nereden başlamalı?
+**grade_rag_relevance** — scores retrieved chunks; drops irrelevant ones. If nothing passes, optionally falls back to a Tavily web summary (`TAVILY_API_KEY` required).
 
-- Yeni bir **sohbet düğümü** eklemek: `graph/nodes.py` + `graph/builder.py` kenarları.
-- **Yeni intent / yönlendirme:** `intent.py` + `graph/routing.py` + `graph/prompts.py`.
-- **Yeni araç:** `workflow_tools.py` + backend `application/chat/tools.py` + `graph/nodes.py` içinde çağrı.
+**generate_response** — final LLM call with system prompt, conversation history, and retrieved context.
 
-## Import notu
+**verify_response** — checks the response addresses the question with evidence. Retries once with stricter instructions; if still weak, returns a safe short fallback.
 
-Uygulama kodu `from hospitai_agent.graph import run_chat` şeklinde kullanmaya devam eder; `graph` bir **paket**tir (`graph/` dizini).
+## Tools (injected by backend)
+
+The backend creates a `ChatWorkflowTools` instance and passes it to the agent via `configure_workflow_tools(...)`. Tools available to the agent:
+
+| Tool                  | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `get_available_slots` | Fetch appointment slots from the hospital HIS API |
+| `book_appointment`    | Submit an appointment request to the HIS API      |
+| `list_appointments`   | List the patient's existing appointments          |
+| `create_ticket`       | Create a support/complaint ticket                 |
+| `list_tickets`        | List the patient's tickets                        |
+
+## Installation
+
+```bash
+cd agent && pip install -e .
+# backend also needs the package:
+cd ../backend && pip install -e ../agent && pip install -e ".[dev]"
+```
+
+## Adding new functionality
+
+- **New node** → `graph/nodes.py` + add edges in `graph/builder.py`
+- **New intent** → `intent.py` + `graph/routing.py` + prompt in `graph/prompts.py`
+- **New tool** → `workflow_tools.py` interface + backend `application/chat/tools/` implementation + call site in `graph/nodes.py`

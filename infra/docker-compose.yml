@@ -51,7 +51,7 @@ services:
   # Reference hospital-line system (SQLite, real HTTP contract — not a stub).
   xyz-hospital:
     build:
-      context: ../integrations/xyz-hospital
+      context: ../hospital
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
