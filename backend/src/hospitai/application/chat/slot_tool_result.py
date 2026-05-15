@@ -55,11 +55,7 @@ def user_message_no_slots_filtered(*, date_iso: str) -> str:
 
 
 def user_message_no_slots_broad(*, date_iso: str, source: Literal["internal", "external"]) -> str:
-    src = (
-        "dış randevu sisteminde"
-        if source == "external"
-        else "hastane kayıtlarında"
-    )
+    src = "dış randevu sisteminde" if source == "external" else "hastane kayıtlarında"
     return (
         f"{date_iso} tarihi için {src} listelenecek müsait randevu saati bulunamadı. "
         "Başka bir gün deneyebilir, kriterlerinizi genişletebilir veya randevu hattını "
@@ -97,9 +93,7 @@ def wrap_slot_tool_success(
 
     if serialized_slots:
         outcome: SlotToolOutcome = "slots_found"
-        user_tr = user_message_slots_found(
-            date_iso=date_iso, source=source, slots=serialized_slots
-        )
+        user_tr = user_message_slots_found(date_iso=date_iso, source=source, slots=serialized_slots)
     elif source == "external" and ext_meta is not None:
         matched = int(ext_meta.get("matched_doctors") or 0)
         filter_applied = bool(ext_meta.get("filter_applied"))

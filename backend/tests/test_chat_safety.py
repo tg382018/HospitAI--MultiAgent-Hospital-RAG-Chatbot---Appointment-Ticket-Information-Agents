@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hospitai_agent.safety import check_emergency, check_injection, check_pii
+from safety import check_emergency, check_injection, check_pii
 
 
 def test_check_injection_catches_ignore_instructions() -> None:

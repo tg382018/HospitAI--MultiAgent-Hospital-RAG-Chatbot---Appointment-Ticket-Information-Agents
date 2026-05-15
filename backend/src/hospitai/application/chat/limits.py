@@ -10,8 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from hospitai.infrastructure.db.models.conversation import ConversationMessage
 
 _LIMIT_REACHED_TR = (
-    "Bu konuşma sınırına ulaşıldı. "
-    "Yeni bir konuşma başlatarak yardımcı olmaya devam edebilirim."
+    "Bu konuşma sınırına ulaşıldı. Yeni bir konuşma başlatarak yardımcı olmaya devam edebilirim."
 )
 
 

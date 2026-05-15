@@ -11,9 +11,7 @@ from hospitai.infrastructure.settings import Settings, get_settings
 
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 ALLOWED_LOGO_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
-ALLOWED_LOGO_MIME = frozenset(
-    {"image/png", "image/jpeg", "image/jpg", "image/webp"}
-)
+ALLOWED_LOGO_MIME = frozenset({"image/png", "image/jpeg", "image/jpg", "image/webp"})
 
 _EXT_BY_MIME: dict[str, str] = {
     "image/png": ".png",
@@ -161,7 +159,9 @@ def save_tenant_favicon(
     data: bytes,
     settings: Settings | None = None,
 ) -> str:
-    validate_favicon_upload(filename="favicon.ico", content_type="image/x-icon", size=len(data), data=data)
+    validate_favicon_upload(
+        filename="favicon.ico", content_type="image/x-icon", size=len(data), data=data
+    )
     dest_dir = tenant_asset_dir(tenant.id, settings)
     dest_dir.mkdir(parents=True, exist_ok=True)
     for old in dest_dir.glob("favicon.*"):

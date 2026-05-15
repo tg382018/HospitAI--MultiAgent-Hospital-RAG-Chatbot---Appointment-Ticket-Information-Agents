@@ -12,11 +12,13 @@ AGENT_LLM_TEMPERATURE_KEY = "agent_llm_temperature"
 AGENT_LLM_MODEL_KEY = "agent_llm_model"
 AGENT_MAX_HISTORY_KEY = "agent_max_conversation_history"
 
-_AGENT_PATCH_KEYS = frozenset({
-    AGENT_LLM_TEMPERATURE_KEY,
-    AGENT_LLM_MODEL_KEY,
-    AGENT_MAX_HISTORY_KEY,
-})
+_AGENT_PATCH_KEYS = frozenset(
+    {
+        AGENT_LLM_TEMPERATURE_KEY,
+        AGENT_LLM_MODEL_KEY,
+        AGENT_MAX_HISTORY_KEY,
+    }
+)
 
 
 class TenantAgentLLMPatch(BaseModel):

@@ -38,6 +38,10 @@ from hospitai.application.tenant_admin import (
     patch_tenant_branding,
     patch_tenant_policy,
 )
+from hospitai.application.tenant_agent_llm import (
+    TenantAgentLLMPatch,
+    tenant_agent_llm_public_fields,
+)
 from hospitai.application.tenant_branding import (
     CHAT_FAVICON_FILE_KEY,
     CHAT_HEADER_BACKGROUND_KEY,
@@ -49,6 +53,12 @@ from hospitai.application.tenant_branding import (
     validate_quick_actions,
     validate_welcome_text,
 )
+from hospitai.application.tenant_policy import effective_policy
+from hospitai.infrastructure.db.models.appointment import Appointment
+from hospitai.infrastructure.db.models.clinical import Department, Doctor
+from hospitai.infrastructure.db.models.enums import AppointmentStatus, UserRole
+from hospitai.infrastructure.db.models.tenant import Tenant
+from hospitai.infrastructure.db.models.user import User
 from hospitai.infrastructure.tenant_assets import (
     branding_public_response,
     delete_tenant_favicon,
@@ -58,16 +68,6 @@ from hospitai.infrastructure.tenant_assets import (
     validate_favicon_upload,
     validate_logo_upload,
 )
-from hospitai.application.tenant_agent_llm import (
-    TenantAgentLLMPatch,
-    tenant_agent_llm_public_fields,
-)
-from hospitai.application.tenant_policy import effective_policy
-from hospitai.infrastructure.db.models.appointment import Appointment
-from hospitai.infrastructure.db.models.clinical import Department, Doctor
-from hospitai.infrastructure.db.models.enums import AppointmentStatus, UserRole
-from hospitai.infrastructure.db.models.tenant import Tenant
-from hospitai.infrastructure.db.models.user import User
 
 _TZ_TURKEY = timezone(timedelta(hours=3))
 
@@ -107,8 +107,9 @@ class DoctorPatch(BaseModel):
 
 
 class BlockedSlotCreate(BaseModel):
-    date: str   # ISO date YYYY-MM-DD
-    time: str   # HH:MM in Turkey local time
+    date: str  # ISO date YYYY-MM-DD
+    time: str  # HH:MM in Turkey local time
+
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -475,7 +476,9 @@ async def patch_tenant_name(
     """Update the display name of the tenant. Admin only."""
     new_name: str = (body.get("name") or "").strip()
     if not new_name:
-        raise_from_domain(DomainError("validation_error", "name must not be empty", status_code=422))
+        raise_from_domain(
+            DomainError("validation_error", "name must not be empty", status_code=422)
+        )
     stmt = select(Tenant).where(Tenant.id == user.tenant_id)
     result = await session.execute(stmt)
     tenant = result.scalar_one_or_none()
@@ -495,7 +498,9 @@ async def list_departments(
     session: SessionDep,
     user: Annotated[User, Depends(require_roles(UserRole.ADMIN))],
 ) -> list[dict[str, Any]]:
-    stmt = select(Department).where(Department.tenant_id == user.tenant_id).order_by(Department.name)
+    stmt = (
+        select(Department).where(Department.tenant_id == user.tenant_id).order_by(Department.name)
+    )
     rows = (await session.execute(stmt)).scalars().all()
     return [{"id": str(d.id), "name": d.name, "is_active": d.is_active} for d in rows]
 
@@ -719,9 +724,7 @@ async def block_slot(
                 Appointment.doctor_id == doctor_id,
                 Appointment.starts_at < ends_at,
                 Appointment.ends_at > starts_at,
-                Appointment.status.not_in(
-                    [AppointmentStatus.CANCELLED, AppointmentStatus.BLOCKED]
-                ),
+                Appointment.status.not_in([AppointmentStatus.CANCELLED, AppointmentStatus.BLOCKED]),
             )
         )
     ).first()

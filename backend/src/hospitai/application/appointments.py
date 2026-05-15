@@ -5,8 +5,6 @@ from __future__ import annotations
 import unicodedata
 import uuid
 from datetime import UTC, date, datetime, time, timedelta, timezone
-
-_TZ_TURKEY = timezone(timedelta(hours=3))
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import or_, select
@@ -21,6 +19,8 @@ from hospitai.infrastructure.db.models.user import User
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+_TZ_TURKEY = timezone(timedelta(hours=3))
 
 _TR_MAP = str.maketrans("şçğıöüŞÇĞİÖÜ", "scgiouSCGIOU")
 
@@ -41,7 +41,7 @@ def default_clinic_hours(d: date) -> tuple[datetime, datetime]:
     """09:00–17:00 Turkey local time (UTC+3) on the given calendar day."""
     day_start_local = datetime.combine(d, time.min, tzinfo=_TZ_TURKEY)
     return (
-        day_start_local + timedelta(hours=9),   # 09:00 +03:00 = 06:00 UTC
+        day_start_local + timedelta(hours=9),  # 09:00 +03:00 = 06:00 UTC
         day_start_local + timedelta(hours=17),  # 17:00 +03:00 = 14:00 UTC
     )
 
@@ -86,7 +86,9 @@ async def get_doctor_in_tenant(
     row = await session.execute(stmt)
     doctor = row.scalar_one_or_none()
     if doctor is None:
-        raise DomainError("doctor_not_found", "Doctor not found or inactive in this hospital", status_code=404)
+        raise DomainError(
+            "doctor_not_found", "Doctor not found or inactive in this hospital", status_code=404
+        )
     return doctor
 
 
@@ -130,7 +132,9 @@ async def list_available_slots(
     # For today: only show slots that start at least 30 minutes from now (in Turkey local time)
     now_turkey = datetime.now(tz=_TZ_TURKEY)
     min_start = (now_turkey + timedelta(minutes=30)) if day == now_turkey.date() else None
-    return compute_free_slots(work_start, work_end, busy, slot_minutes=slot_minutes, min_start=min_start)
+    return compute_free_slots(
+        work_start, work_end, busy, slot_minutes=slot_minutes, min_start=min_start
+    )
 
 
 async def list_available_slots_for_chat(
@@ -154,9 +158,11 @@ async def list_available_slots_for_chat(
     dn = (doctor_name or "").strip()
     if dn:
         import re as _re2
+
         dn_bare = _re2.sub(r"^[Dd][Rr]\.?\s*", "", dn).strip()
         dn_norm = _ascii_normalize(dn_bare).lower()
         from sqlalchemy import func as sa_func
+
         col_norm = sa_func.lower(
             sa_func.translate(
                 sa_func.regexp_replace(Doctor.full_name, r"^Dr\.?\s*", "", "i"),
@@ -229,7 +235,9 @@ async def ensure_patient_in_tenant(
     )
     row = await session.execute(stmt)
     if row.scalar_one_or_none() is None:
-        raise DomainError("patient_not_found", "Patient user not found in this hospital", status_code=404)
+        raise DomainError(
+            "patient_not_found", "Patient user not found in this hospital", status_code=404
+        )
 
 
 async def create_appointment(
@@ -267,7 +275,9 @@ async def create_appointment(
         )
         drow = await session.execute(dstmt)
         if drow.scalar_one_or_none() is None:
-            raise DomainError("department_not_found", "Department not found in this hospital", status_code=404)
+            raise DomainError(
+                "department_not_found", "Department not found in this hospital", status_code=404
+            )
 
     # Resolve patient_user_id for authenticated users
     resolved_patient_id: uuid.UUID | None = None
@@ -290,7 +300,11 @@ async def create_appointment(
         )
     )
     if overlap.scalar_one_or_none() is not None:
-        raise DomainError("slot_unavailable", "Bu saat için başka bir randevu mevcut; lütfen başka bir saat seçin.", status_code=409)
+        raise DomainError(
+            "slot_unavailable",
+            "Bu saat için başka bir randevu mevcut; lütfen başka bir saat seçin.",
+            status_code=409,
+        )
 
     appt = Appointment(
         tenant_id=tenant_id,
@@ -381,8 +395,12 @@ async def find_active_doctor_by_name(
     tenant_id: uuid.UUID,
     name_substr: str,
 ) -> tuple[Doctor | None, str]:
-    """Tek eşleşme varsa doktoru döner; yoksa (None, hata_kodu) — ``ambiguous`` veya ``not_found``."""
+    """Tek eşleşme varsa doktoru döner; yoksa (None, hata_kodu).
+
+    Hata kodları: ``ambiguous`` veya ``not_found``.
+    """
     import re as _re
+
     n = (name_substr or "").strip()
     # Strip "Dr." / "Dr " prefix so "Dr Ayse" and "Dr. Ayşe" both resolve correctly
     n = _re.sub(r"^[Dd][Rr]\.?\s*", "", n).strip()
@@ -390,6 +408,7 @@ async def find_active_doctor_by_name(
         return None, "too_short"
     n_norm = _ascii_normalize(n).lower()
     from sqlalchemy import func as sa_func
+
     # Normalize DB column: remove Turkish chars + strip "Dr. " prefix via translate, then lower
     col_norm = sa_func.lower(
         sa_func.translate(
@@ -433,7 +452,9 @@ async def admin_doctor_day_slots(
     work_start, work_end = default_clinic_hours(day)
     step = timedelta(minutes=slot_minutes)
 
-    appt_stmt = select(Appointment.id, Appointment.status, Appointment.starts_at, Appointment.ends_at).where(
+    appt_stmt = select(
+        Appointment.id, Appointment.status, Appointment.starts_at, Appointment.ends_at
+    ).where(
         Appointment.tenant_id == tenant_id,
         Appointment.doctor_id == doctor_id,
         Appointment.status != AppointmentStatus.CANCELLED,
@@ -449,8 +470,14 @@ async def admin_doctor_day_slots(
     cursor = work_start
     while cursor + step <= work_end:
         slot_end = cursor + step
-        overlapping = [(aid, st, s0, s1) for aid, st, s0, s1 in appts if ranges_overlap(cursor, slot_end, s0, s1)]
-        blocked = [(aid, st, s0, s1) for aid, st, s0, s1 in overlapping if st == AppointmentStatus.BLOCKED]
+        overlapping = [
+            (aid, st, s0, s1)
+            for aid, st, s0, s1 in appts
+            if ranges_overlap(cursor, slot_end, s0, s1)
+        ]
+        blocked = [
+            (aid, st, s0, s1) for aid, st, s0, s1 in overlapping if st == AppointmentStatus.BLOCKED
+        ]
         if blocked:
             state = "blocked"
             block_id = str(blocked[0][0])

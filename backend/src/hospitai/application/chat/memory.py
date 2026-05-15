@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import uuid
 
-from state import ChatState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from state import ChatState
 
 from hospitai.infrastructure.db.models.conversation import Conversation, ConversationMessage
 from hospitai.infrastructure.settings import get_settings

@@ -99,7 +99,8 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="HOSPITAL_BRIDGE_RABBITMQ_URL",
         description=(
-            "Hastane köprüsü için RabbitMQ broker URL (amqp://…). HTTP tabanı yokken yayın kullanılır."
+            "Hastane köprüsü için RabbitMQ broker URL (amqp://…). "
+            "HTTP tabanı yokken yayın kullanılır."
         ),
     )
 

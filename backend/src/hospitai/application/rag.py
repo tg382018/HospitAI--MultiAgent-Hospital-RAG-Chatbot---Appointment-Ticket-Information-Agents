@@ -13,14 +13,14 @@ from pathlib import Path
 import structlog
 from rag.chunking import chunk_text
 from rag.embeddings import embed_single, embed_texts
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from vectordb.chroma import (
     add_chunks_to_collection,
     delete_document_vectors,
     query_collection,
 )
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from hospitai.application.errors import DomainError
 from hospitai.infrastructure.db.models.document import Document, DocumentChunk, DocumentStatus

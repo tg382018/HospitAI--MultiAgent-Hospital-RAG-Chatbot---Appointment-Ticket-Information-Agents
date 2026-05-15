@@ -51,6 +51,4 @@ def test_validate_quick_actions_defaults() -> None:
 
 def test_validate_quick_actions_duplicate_label() -> None:
     with pytest.raises(ValueError):
-        validate_quick_actions(
-            [{"icon": "📅", "label": "A"}, {"icon": "📋", "label": "a"}]
-        )
+        validate_quick_actions([{"icon": "📅", "label": "A"}, {"icon": "📋", "label": "a"}])

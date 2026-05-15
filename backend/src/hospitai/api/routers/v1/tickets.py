@@ -11,7 +11,12 @@ from hospitai.api.deps import CurrentUser, SessionDep
 from hospitai.api.http_mapping import raise_from_domain
 from hospitai.api.schemas.tickets import CreateTicketRequest, TicketResponse
 from hospitai.application.errors import DomainError
-from hospitai.application.tickets import close_ticket, create_ticket, get_ticket_by_reference, list_tickets
+from hospitai.application.tickets import (
+    close_ticket,
+    create_ticket,
+    get_ticket_by_reference,
+    list_tickets,
+)
 from hospitai.infrastructure.db.models.enums import TicketStatus
 from hospitai.workers.tasks import notify_domain_event
 

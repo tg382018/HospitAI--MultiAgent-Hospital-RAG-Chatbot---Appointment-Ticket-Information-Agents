@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -46,7 +46,7 @@ def _make_fake_conv() -> MagicMock:
 
 async def _fake_iter_sse(**_kwargs) -> AsyncIterator[str]:
     """Minimal SSE generator: token then final."""
-    yield f'event: token\ndata: {json.dumps({"text": "Merhaba"})}\n\n'
+    yield f"event: token\ndata: {json.dumps({'text': 'Merhaba'})}\n\n"
     yield (
         "event: final\n"
         "data: "
@@ -123,12 +123,8 @@ async def test_chat_stream_sse_event_order(monkeypatch) -> None:
     async def fake_write_audit(*args, **kwargs):
         pass
 
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory
-    )
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat._resolve_tenant_for_chat", fake_resolve
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory)
+    monkeypatch.setattr("hospitai.api.routers.v1.chat._resolve_tenant_for_chat", fake_resolve)
     monkeypatch.setattr(
         "hospitai.api.routers.v1.chat._tenant_slug_and_agent_overrides", fake_agent_overrides
     )
@@ -136,9 +132,7 @@ async def test_chat_stream_sse_event_order(monkeypatch) -> None:
         "hospitai.api.routers.v1.chat.get_or_create_conversation", fake_get_or_create
     )
     monkeypatch.setattr("hospitai.api.routers.v1.chat.load_memory", fake_load_memory)
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.check_conversation_limit", fake_check_limit
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.check_conversation_limit", fake_check_limit)
     monkeypatch.setattr("hospitai.api.routers.v1.chat.save_message", fake_save_message)
     monkeypatch.setattr("hospitai.api.routers.v1.chat.write_audit_log", fake_write_audit)
     monkeypatch.setattr("hospitai.api.routers.v1.chat.iter_chat_sse", _fake_iter_sse)
@@ -196,12 +190,8 @@ async def test_chat_stream_limit_reached(monkeypatch) -> None:
     async def fake_save_message(session, *, conversation_id, tenant_id, role, content):
         pass
 
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory
-    )
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat._resolve_tenant_for_chat", fake_resolve
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory)
+    monkeypatch.setattr("hospitai.api.routers.v1.chat._resolve_tenant_for_chat", fake_resolve)
     monkeypatch.setattr(
         "hospitai.api.routers.v1.chat._tenant_slug_and_agent_overrides", fake_agent_overrides
     )
@@ -209,9 +199,7 @@ async def test_chat_stream_limit_reached(monkeypatch) -> None:
         "hospitai.api.routers.v1.chat.get_or_create_conversation", fake_get_or_create
     )
     monkeypatch.setattr("hospitai.api.routers.v1.chat.load_memory", fake_load_memory)
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.check_conversation_limit", fake_check_limit
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.check_conversation_limit", fake_check_limit)
     monkeypatch.setattr("hospitai.api.routers.v1.chat.save_message", fake_save_message)
 
     transport = ASGITransport(app=app)
@@ -246,9 +234,7 @@ async def test_chat_stream_tenant_not_found(monkeypatch) -> None:
     async def fake_resolve_missing(session, *, user, x_tenant_slug, settings):
         raise AppError("tenant_not_found", "Hastane bulunamadı.", status_code=404)
 
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory)
     monkeypatch.setattr(
         "hospitai.api.routers.v1.chat._resolve_tenant_for_chat", fake_resolve_missing
     )
@@ -278,9 +264,7 @@ async def test_chat_stream_db_error_returns_503(monkeypatch) -> None:
     mock_session.__aexit__ = AsyncMock(return_value=False)
     mock_factory = MagicMock(return_value=mock_session)
 
-    monkeypatch.setattr(
-        "hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory
-    )
+    monkeypatch.setattr("hospitai.api.routers.v1.chat.get_session_factory", lambda: mock_factory)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

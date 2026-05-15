@@ -186,7 +186,8 @@ async def list_doctors_tool(
     doctor_name: str = "",
 ) -> dict[str, Any]:
     """Aktif doktorları DB'den listele — bölüm veya isim filtresiyle."""
-    from sqlalchemy import func as sa_func, select as sa_select
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import select as sa_select
 
     from hospitai.infrastructure.db.models.clinical import Department, Doctor
 
@@ -246,8 +247,7 @@ async def list_doctors_tool(
             "success": True,
             "user_message_tr": "\n".join(lines),
             "doctors": [
-                {"name": r.Doctor.full_name, "department": r.dept_name or "Genel"}
-                for r in rows
+                {"name": r.Doctor.full_name, "department": r.dept_name or "Genel"} for r in rows
             ],
         }
 
@@ -336,9 +336,7 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                         Appointment.guest_contact == phone,
                         Appointment.status != appt_svc.AppointmentStatus.CANCELLED,
                     )
-                    .options(
-                        selectinload(Appointment.doctor), selectinload(Appointment.department)
-                    )
+                    .options(selectinload(Appointment.doctor), selectinload(Appointment.department))
                     .order_by(Appointment.starts_at.desc())
                     .limit(20)
                 )
@@ -354,9 +352,7 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                                     "department_name": (
                                         a.department.name if a.department else "N/A"
                                     ),
-                                    "start_time": (
-                                        a.starts_at.isoformat() if a.starts_at else ""
-                                    ),
+                                    "start_time": (a.starts_at.isoformat() if a.starts_at else ""),
                                     "end_time": a.ends_at.isoformat() if a.ends_at else "",
                                     "status": (
                                         a.status.value
@@ -373,9 +369,7 @@ async def list_appointments_tool(state: ChatState) -> dict[str, Any]:
                 "success": True,
                 "appointments": [],
                 "count": 0,
-                "user_message_tr": (
-                    "Randevularınızı görmek için kayıtlı cep telefonunuzu yazın."
-                ),
+                "user_message_tr": ("Randevularınızı görmek için kayıtlı cep telefonunuzu yazın."),
             }
 
         appointments = await appt_svc.list_appointments_for_actor(

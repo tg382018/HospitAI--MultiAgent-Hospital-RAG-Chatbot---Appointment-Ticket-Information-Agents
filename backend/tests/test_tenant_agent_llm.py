@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from hospitai_agent.llm.profile import LLMProfile, merge_llm_profile
+from llm.profile import LLMProfile, merge_llm_profile
 
 from hospitai.application.tenant_agent_llm import (
     AGENT_LLM_MODEL_KEY,
@@ -43,8 +43,7 @@ def test_effective_max_history_uses_tenant_when_set() -> None:
     fake_settings = SimpleNamespace(max_conversation_history=12)
     assert effective_max_conversation_history(None, settings=fake_settings) == 12
     assert (
-        effective_max_conversation_history({AGENT_MAX_HISTORY_KEY: 3}, settings=fake_settings)
-        == 3
+        effective_max_conversation_history({AGENT_MAX_HISTORY_KEY: 3}, settings=fake_settings) == 3
     )
 
 

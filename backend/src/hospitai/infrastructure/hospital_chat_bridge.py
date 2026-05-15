@@ -12,7 +12,8 @@ HTTP (tercih): ``POST {base}/v1/hospitai-bridge/{operation}``
 - ``tickets/create`` — ``full_name``, ``subject``, ``description``, isteğe bağlı ``phone``,
   ``national_id``, ``email``
 
-İstek gövdesi her zaman ``tenant_slug`` içerir; Bearer için tenant ``external_hospital_api_key`` kullanılır.
+İstek gövdesi her zaman ``tenant_slug`` içerir; Bearer için tenant
+``external_hospital_api_key`` kullanılır.
 
 Beklenen yanıt (esnek JSON):
 
@@ -62,7 +63,9 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     return h
 
 
-def _rabbit_publish_sync(broker_url: str, tenant_slug: str, operation: str, payload: dict[str, Any]) -> None:
+def _rabbit_publish_sync(
+    broker_url: str, tenant_slug: str, operation: str, payload: dict[str, Any]
+) -> None:
     from kombu import Connection, Exchange
 
     envelope = {
@@ -72,9 +75,8 @@ def _rabbit_publish_sync(broker_url: str, tenant_slug: str, operation: str, payl
     }
     routing_key = f"hospitai.{operation.replace('/', '.')}"
     ex = Exchange("hospitai.bridge", type="topic", durable=False)
-    with Connection(broker_url) as conn:
-        with conn.Producer(serializer="json") as producer:
-            producer.publish(envelope, exchange=ex, routing_key=routing_key, declare=[ex])
+    with Connection(broker_url) as conn, conn.Producer(serializer="json") as producer:
+        producer.publish(envelope, exchange=ex, routing_key=routing_key, declare=[ex])
 
 
 def _normalize_http_result(status_code: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -97,7 +99,9 @@ def _normalize_http_result(status_code: int, body: dict[str, Any]) -> dict[str, 
         "success": accepted,
         "accepted": accepted,
         "user_message_tr": msg or ("İşlem kabul edildi." if accepted else "İşlem kabul edilmedi."),
-        "appointments": body.get("appointments") if isinstance(body.get("appointments"), list) else [],
+        "appointments": body.get("appointments")
+        if isinstance(body.get("appointments"), list)
+        else [],
         "tickets": body.get("tickets") if isinstance(body.get("tickets"), list) else [],
         "reference": str(body.get("reference") or ""),
         "raw": body,

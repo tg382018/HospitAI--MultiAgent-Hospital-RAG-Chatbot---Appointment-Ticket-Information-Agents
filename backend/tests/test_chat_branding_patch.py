@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
-from hospitai.api.main import app
 from hospitai.api.schemas.chat_branding import ChatBrandingPatch, QuickActionChip
 from hospitai.application.tenant_branding import validate_quick_actions
 from hospitai.infrastructure.db.models.tenant import Tenant
@@ -14,9 +12,7 @@ from hospitai.infrastructure.db.session import get_session_factory
 
 
 def test_validate_quick_actions_from_model_dump() -> None:
-    body = ChatBrandingPatch(
-        quick_actions=[QuickActionChip(icon="📅", label="Randevu Al")]
-    )
+    body = ChatBrandingPatch(quick_actions=[QuickActionChip(icon="📅", label="Randevu Al")])
     raw = body.model_dump(exclude_unset=True)
     out = validate_quick_actions(raw["quick_actions"])
     assert out[0]["label"] == "Randevu Al"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any, Protocol
 
@@ -12,9 +13,7 @@ CHAT_LOGO_FILE_KEY = "chat_logo_file"
 CHAT_FAVICON_FILE_KEY = "chat_favicon_file"
 CHAT_QUICK_ACTIONS_KEY = "chat_quick_actions"
 
-DEFAULT_HEADER_BACKGROUND = (
-    "linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)"
-)
+DEFAULT_HEADER_BACKGROUND = "linear-gradient(135deg, #0ea5e9 0%, #0891b2 50%, #14b8a6 100%)"
 DEFAULT_WELCOME_TITLE = "Merhaba! 👋"
 DEFAULT_WELCOME_SUBTITLE = (
     "Size nasıl yardımcı olabilirim? Randevu almak, randevularınızı sorgulamak "
@@ -112,18 +111,14 @@ def effective_branding(tenant: _TenantBrandingSource | None) -> dict[str, Any]:
         if k not in raw or raw[k] is None:
             continue
         if k == CHAT_QUICK_ACTIONS_KEY:
-            try:
+            with contextlib.suppress(ValueError):
                 out[k] = validate_quick_actions(raw[k])
-            except ValueError:
-                pass
         else:
             out[k] = raw[k]
     return out
 
 
-def merge_branding_patch(
-    current: dict[str, Any] | None, patch: dict[str, Any]
-) -> dict[str, Any]:
+def merge_branding_patch(current: dict[str, Any] | None, patch: dict[str, Any]) -> dict[str, Any]:
     defaults = default_branding()
     out: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
     for k, v in defaults.items():

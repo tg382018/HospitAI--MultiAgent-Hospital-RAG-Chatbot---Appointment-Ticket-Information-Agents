@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from hospitai_agent.tools.slot_params import extract_slot_query_params
+from tools.slot_params import extract_slot_query_params
 
 
 def test_extract_iso_date_overrides_relative() -> None:

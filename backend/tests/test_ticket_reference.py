@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hospitai_agent.tools.ticket_reference import extract_ticket_reference
+from tools.ticket_reference import extract_ticket_reference
 
 
 def test_extract_ticket_reference_normalizes_hex() -> None:
