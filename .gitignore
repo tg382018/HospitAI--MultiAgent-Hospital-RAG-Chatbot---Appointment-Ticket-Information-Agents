@@ -10,6 +10,8 @@ node_modules/
 # Python
 backend/.venv/
 backend/__pycache__/
+backend/.coverage
+
 **/__pycache__/
 *.py[cod]
 *$py.class

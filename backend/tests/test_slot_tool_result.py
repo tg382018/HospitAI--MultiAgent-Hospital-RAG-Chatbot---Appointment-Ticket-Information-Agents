@@ -5,9 +5,13 @@ from __future__ import annotations
 from datetime import date
 
 from hospitai.application.chat.slot_tool_result import (
+    format_slot_lines,
     user_message_external_catalog_empty,
     user_message_no_matching_doctors_external,
+    user_message_no_slots_broad,
+    user_message_no_slots_filtered,
     user_message_slots_found,
+    wrap_slot_tool_error,
     wrap_slot_tool_success,
 )
 
@@ -69,3 +73,54 @@ def test_user_message_slots_found_external_prefix() -> None:
     )
     assert "dış hastane" in s.lower()
     assert "2026-01-05" in s
+
+
+def test_wrap_no_slots_filtered() -> None:
+    day = date(2026, 6, 4)
+    r = wrap_slot_tool_success(
+        day=day,
+        source="internal",
+        serialized_slots=[],
+        ext_meta=None,
+        filter_department="Kardiyoloji",
+        filter_doctor="",
+    )
+    assert r["slot_outcome"] == "no_slots_filtered"
+    assert r["user_message_tr"] == user_message_no_slots_filtered(date_iso=day.isoformat())
+
+
+def test_wrap_no_slots_broad_internal() -> None:
+    day = date(2026, 6, 5)
+    r = wrap_slot_tool_success(
+        day=day,
+        source="internal",
+        serialized_slots=[],
+        ext_meta=None,
+        filter_department="",
+        filter_doctor="",
+    )
+    assert r["slot_outcome"] == "no_slots_broad"
+    assert r["user_message_tr"] == user_message_no_slots_broad(
+        date_iso=day.isoformat(), source="internal"
+    )
+
+
+def test_format_slot_lines_truncates_long_lists() -> None:
+    slots = [
+        {"doctor": "Dr. A", "department": "X", "start": "09:00", "end": "09:30"} for _ in range(12)
+    ]
+    lines = format_slot_lines(slots, max_visible=10)
+    assert len(lines) == 11
+    assert "2 saat daha" in lines[-1]
+
+
+def test_wrap_slot_tool_error_shape() -> None:
+    r = wrap_slot_tool_error(
+        outcome="date_required",
+        error="date_required",
+        user_message_tr="Hangi gün?",
+    )
+    assert r["success"] is False
+    assert r["slot_outcome"] == "date_required"
+    assert r["count"] == 0
+    assert r["user_message_tr"] == "Hangi gün?"
